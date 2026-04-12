@@ -28,6 +28,19 @@ migrate_working_copy
 .pub-cache/
 .pub/
 /build/
+build/
+
+# Flutter metadata (should not be tracked)
+.metadata
+
+# OS files
+Thumbs.db
+
+# Android 
+android/
+
+# iOS
+ios/
 
 # Symbolication related
 app.*.symbols
@@ -37,3 +50,5 @@ app.*.symbols
 *.aab
 *.ex_
 *.ipa
+
+analysis_options.yaml

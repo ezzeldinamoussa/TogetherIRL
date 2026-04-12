@@ -19,9 +19,19 @@ const String imgGroup =
 final List<Member> sampleMembers = [
   Member(id: '1', name: 'You', email: 'you@email.com', preferencesSet: true),
   Member(id: '2', name: 'Alex', email: 'alex@email.com', preferencesSet: true),
-  Member(id: '3', name: 'Jordan', email: 'jordan@email.com', preferencesSet: false),
+  Member(
+    id: '3',
+    name: 'Jordan',
+    email: 'jordan@email.com',
+    preferencesSet: false,
+  ),
   Member(id: '4', name: 'Sam', email: 'sam@email.com', preferencesSet: true),
-  Member(id: '5', name: 'Casey', email: 'casey@email.com', preferencesSet: false),
+  Member(
+    id: '5',
+    name: 'Casey',
+    email: 'casey@email.com',
+    preferencesSet: false,
+  ),
 ];
 
 // ── Groups ────────────────────────────────────────────────────
@@ -42,7 +52,7 @@ final List<Group> sampleGroups = [
   ),
 ];
 
-// ── Day planner itinerary ─────────────────────────────────────
+// ── Default single-day itinerary (optional fallback) ──────────
 final List<ItineraryStop> sampleItinerary = [
   ItineraryStop(
     id: '1',
@@ -84,6 +94,94 @@ final List<ItineraryStop> sampleItinerary = [
     matchScore: 92,
   ),
 ];
+
+// ── Planner itineraries by date ───────────────────────────────
+final Map<DateTime, List<ItineraryStop>> sampleItinerariesByDate = {
+  DateTime(2026, 3, 8): [
+    ItineraryStop(
+      id: '1',
+      type: 'Brunch',
+      name: 'The Corner Cafe',
+      time: '11:00 AM',
+      duration: '1.5 hrs',
+      address: '123 Main St',
+      distance: '0.3 mi',
+      priceRange: r'$$',
+      rating: 4.5,
+      imageUrl: imgBrunch,
+      matchScore: 95,
+    ),
+    ItineraryStop(
+      id: '2',
+      type: 'Coffee',
+      name: 'Brew & Bean',
+      time: '1:00 PM',
+      duration: '45 min',
+      address: '456 Oak Ave',
+      distance: '0.5 mi',
+      priceRange: r'$',
+      rating: 4.7,
+      imageUrl: imgCoffee,
+      matchScore: 88,
+    ),
+    ItineraryStop(
+      id: '3',
+      type: 'Dessert',
+      name: 'Sweet Treats Ice Cream',
+      time: '3:30 PM',
+      duration: '30 min',
+      address: '789 Park Blvd',
+      distance: '0.7 mi',
+      priceRange: r'$',
+      rating: 4.8,
+      imageUrl: imgIceCream,
+      matchScore: 92,
+    ),
+  ],
+  DateTime(2026, 3, 12): [
+    ItineraryStop(
+      id: '4',
+      type: 'Lunch',
+      name: 'Sunset Bistro',
+      time: '12:30 PM',
+      duration: '1 hr',
+      address: '22 River Rd',
+      distance: '0.4 mi',
+      priceRange: r'$$',
+      rating: 4.4,
+      imageUrl: imgBrunch,
+      matchScore: 91,
+    ),
+    ItineraryStop(
+      id: '5',
+      type: 'Coffee',
+      name: 'Roast Lab',
+      time: '2:00 PM',
+      duration: '40 min',
+      address: '89 Cedar St',
+      distance: '0.2 mi',
+      priceRange: r'$',
+      rating: 4.6,
+      imageUrl: imgCoffee,
+      matchScore: 87,
+    ),
+  ],
+  DateTime(2026, 3, 15): [
+    ItineraryStop(
+      id: '6',
+      type: 'Dessert',
+      name: 'Cloud Creamery',
+      time: '4:00 PM',
+      duration: '35 min',
+      address: '10 Park Ave',
+      distance: '0.6 mi',
+      priceRange: r'$',
+      rating: 4.9,
+      imageUrl: imgIceCream,
+      matchScore: 94,
+    ),
+  ],
+};
 
 // ── Bill items ────────────────────────────────────────────────
 List<BillItem> get sampleBillItems => [
@@ -149,3 +247,19 @@ final List<Hangout> sampleHangouts = [
         'Tony\'s Pizza never disappoints. The margherita had the perfect char on the crust.',
   ),
 ];
+
+// ── Calendar events (NEW) ─────────────────────────────────────
+final Map<DateTime, List<Map<String, String>>> sampleCalendarEvents = {
+  DateTime(2026, 3, 8): [
+    {'title': 'Brunch at The Corner Cafe', 'time': '11:00 AM', 'group': 'College Squad 🎓'},
+    {'title': 'Coffee at Brew & Bean', 'time': '1:00 PM', 'group': 'College Squad 🎓'},
+    {'title': 'Dessert at Sweet Treats Ice Cream', 'time': '3:30 PM', 'group': 'College Squad 🎓'},
+  ],
+  DateTime(2026, 3, 12): [
+    {'title': 'Lunch at Sunset Bistro', 'time': '12:30 PM', 'group': 'Foodie Friends 🍕'},
+    {'title': 'Coffee at Roast Lab', 'time': '2:00 PM', 'group': 'Foodie Friends 🍕'},
+  ],
+  DateTime(2026, 3, 15): [
+    {'title': 'Dessert at Cloud Creamery', 'time': '4:00 PM', 'group': 'College Squad 🎓'},
+  ],
+};
