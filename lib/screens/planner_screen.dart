@@ -9,6 +9,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../models/sample_data.dart';
 import '../theme.dart';
 import '../widgets/common_widgets.dart';
+import 'table_talk_screen.dart';
 
 class PlannerScreen extends StatefulWidget {
   const PlannerScreen({super.key});
@@ -240,7 +241,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withOpacity(0.1),
+                    color: AppTheme.primary.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -352,6 +353,8 @@ class _PlannerScreenState extends State<PlannerScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 8),
+          _TableTalkBanner(),
           const SizedBox(height: 16),
         ],
       ),
@@ -423,7 +426,7 @@ class _ItineraryCard extends StatelessWidget {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: AppTheme.green.withOpacity(0.1),
+                        color: AppTheme.green.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -489,4 +492,88 @@ class _Detail extends StatelessWidget {
           ),
         ],
       );
+}
+
+// ── TableTalk banner / launch button ──────────────────────────
+class _TableTalkBanner extends StatelessWidget {
+  const _TableTalkBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final venue = sampleItinerary.isNotEmpty ? sampleItinerary[0].name : 'Current Location';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.spatial_audio, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Start TableTalk session',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Adjust each person\'s voice at the table',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  fullscreenDialog: true,
+                  builder: (_) => TableTalkScreen(
+                    groupName: 'College Squad',
+                    venueName: venue,
+                  ),
+                ),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.arrow_forward,
+                color: Color(0xFF4F46E5),
+                size: 18,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
