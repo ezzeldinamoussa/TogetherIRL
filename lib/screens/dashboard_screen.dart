@@ -11,11 +11,13 @@ import '../widgets/common_widgets.dart';
 class DashboardScreen extends StatelessWidget {
   final VoidCallback onCreateGroup;
   final VoidCallback onViewPlanner;
+  final VoidCallback onViewMemories;
 
   const DashboardScreen({
     super.key,
     required this.onCreateGroup,
     required this.onViewPlanner,
+    required this.onViewMemories,
   });
 
   @override
@@ -26,12 +28,20 @@ class DashboardScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Welcome header ──────────────────────────────────
-          const Text(
-            'Welcome back! 👋',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+          const SizedBox(
+            width: double.infinity,
+            child: Column(
+              children: [
+                Text(
+                  'Welcome back! 👋',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 4),
+                SubTitle('Plan your next adventure or revisit amazing memories'),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-          const SubTitle('Plan your next adventure or revisit amazing memories'),
           const SizedBox(height: 20),
 
           // ── Quick stats ─────────────────────────────────────
@@ -79,21 +89,24 @@ class DashboardScreen extends StatelessWidget {
           // ── Recent memories ──────────────────────────────────
           const SectionTitle('Recent Memories'),
           const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 6,
-                mainAxisSpacing: 6,
-                children: [imgBrunch, imgCoffee, imgIceCream]
-                    .map((url) => ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: NetImage(url),
-                        ))
-                    .toList(),
+          GestureDetector(
+            onTap: onViewMemories,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: GridView.count(
+                  crossAxisCount: 3,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 6,
+                  children: [imgBrunch, imgCoffee, imgIceCream]
+                      .map((url) => ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: NetImage(url),
+                          ))
+                      .toList(),
+                ),
               ),
             ),
           ),

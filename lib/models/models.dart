@@ -111,6 +111,33 @@ class Quest {
   Quest({required this.id, required this.description, this.completed = false});
 }
 
+// ── Photo collection window ──────────────────────────────────
+enum UploadStatus { pending, done, skipped }
+
+class PhotoCollection {
+  final String hangoutId;
+  final String hangoutTitle;
+  final String groupName;
+  final List<Member> members;
+  final DateTime hangoutDate;
+  final DateTime deadline; // midnight at end of day after hangout
+  final Map<String, UploadStatus> memberStatuses; // memberId → status
+
+  PhotoCollection({
+    required this.hangoutId,
+    required this.hangoutTitle,
+    required this.groupName,
+    required this.members,
+    required this.hangoutDate,
+    required this.deadline,
+    required this.memberStatuses,
+  });
+
+  int get totalResponded =>
+      memberStatuses.values.where((s) => s != UploadStatus.pending).length;
+  bool get allResponded => totalResponded == members.length;
+}
+
 // ── Hangout (Scrapbook entry) ────────────────────────────────
 class Hangout {
   final String id;
