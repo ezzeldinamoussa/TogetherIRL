@@ -1,0 +1,30 @@
+name: hangout_backend
+description: Hangout App backend server written in Dart
+version: 1.0.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  # Web server framework (official Dart server srcrary)
+  shelf: ^1.4.1
+  shelf_router: ^1.1.4
+  shelf_cors_headers: ^0.1.5
+
+  # HTTP client (for calling Supabase REST API)
+  http: ^1.2.0
+
+  # Environment variables (.env file support)
+  dotenv: ^4.1.0
+
+  # JSON helpers
+  dart_jsonwebtoken: ^2.12.2
+
+  # Unique IDs
+  uuid: ^4.3.3
+
+  # WebSockets (for Socket.io-style real-time features)
+  web_socket_channel: ^3.0.1
+
+dev_dependencies:
+  lints: ^3.0.0
