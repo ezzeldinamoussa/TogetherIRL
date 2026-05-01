@@ -66,11 +66,11 @@ class SupabaseClient {
   }) async {
     final headers = Map<String, String>.from(_headers);
     if (upsert) {
-      headers['Prefer'] = 'return=representation,resolution=merge-duplicates';
-      if (onConflict != null) {
-        headers['Prefer'] += ',on_conflict=$onConflict';
-      }
-    }
+  headers['Prefer'] = 'return=representation,resolution=merge-duplicates';
+  if (onConflict != null) {
+    headers['Prefer'] = '${headers['Prefer']},on_conflict=$onConflict';
+  }
+}
  
     final uri = Uri.parse('$_baseUrl/$table');
     final res = await http.post(uri, headers: headers, body: jsonEncode(data));

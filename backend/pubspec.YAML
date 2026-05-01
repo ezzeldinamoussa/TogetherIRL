@@ -1,5 +1,5 @@
-name: hangout_backend
-description: Hangout App backend server written in Dart
+name: backend
+description: backend written in Dart
 version: 1.0.0
 
 environment:

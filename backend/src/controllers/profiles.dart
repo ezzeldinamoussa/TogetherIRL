@@ -9,28 +9,16 @@ class ProfilesController {
 
   Router get router {
     final router = Router();
-
-    // All routes require auth
     final auth = requireAuth();
 
-    /// GET /api/profiles/me
-    /// Returns the authenticated user's full profile.
     router.get('/me', Pipeline().addMiddleware(auth).addHandler(_getMyProfile));
-
-    /// PUT /api/profiles/me
-    /// Creates or updates the authenticated user's profile.
     router.put('/me', Pipeline().addMiddleware(auth).addHandler(_upsertMyProfile));
-
-    /// GET /api/profiles/<userId>
-    /// Returns any user's public profile (for group member cards).
     router.get('/<userId>', Pipeline().addMiddleware(auth).addHandler(_getProfileById));
 
     return router;
   }
 
-  // ─────────────────────────────────────────
   // GET /me
-  // ─────────────────────────────────────────
   Future<Response> _getMyProfile(Request req) async {
     final userId = req.userId;
     try {
@@ -42,18 +30,17 @@ class ProfilesController {
     }
   }
 
-  // ─────────────────────────────────────────
   // PUT /me
-  // ─────────────────────────────────────────
-  // Body (all fields optional):
+  // Profiles only store permanent personal info now.
+  // Budget, activity types, and food preferences are collected per-hangout.
+  //
+  // Body (all optional):
   // {
   //   "display_name": "Sophia",
+  //   "avatar_url": "https://...",
   //   "bio": "Always hungry 🍜",
-  //   "food_preferences": ["Korean", "Mexican"],
-  //   "dietary_restrictions": ["vegetarian"],
-  //   "budget_range": "$$",
-  //   "activity_types": ["food", "coffee", "dessert"],
-  //   "max_travel_distance_km": 5
+  //   "dietary_restrictions": ["vegetarian", "nut-allergy"],
+  //   "max_travel_distance_km": 8
   // }
   Future<Response> _upsertMyProfile(Request req) async {
     final userId = req.userId;
@@ -64,12 +51,14 @@ class ProfilesController {
       'updated_at': DateTime.now().toIso8601String(),
     };
 
-    // Only include fields the client actually sent
     const allowedFields = [
-      'display_name', 'avatar_url', 'bio',
-      'food_preferences', 'dietary_restrictions',
-      'budget_range', 'activity_types', 'max_travel_distance_km',
+      'display_name',
+      'avatar_url',
+      'bio',
+      'dietary_restrictions',    // hard limits — stays on profile
+      'max_travel_distance_km',  // general default — can be overridden per hangout
     ];
+
     for (final field in allowedFields) {
       if (body.containsKey(field)) profileData[field] = body[field];
     }
@@ -82,16 +71,14 @@ class ProfilesController {
     }
   }
 
-  // ─────────────────────────────────────────
-  // GET /<userId>
-  // ─────────────────────────────────────────
+  // GET /<userId> — public profile for group member cards
   Future<Response> _getProfileById(Request req) async {
     final userId = req.params['userId']!;
     try {
       final rows = await _db.select(
         'profiles',
         filters: {'id': 'eq.$userId'},
-        columns: 'id,display_name,avatar_url,bio,food_preferences,dietary_restrictions,budget_range,activity_types',
+        columns: 'id,display_name,avatar_url,bio,dietary_restrictions,max_travel_distance_km',
         single: true,
       );
       if (rows.isEmpty) return _notFound('Profile not found');
@@ -102,18 +89,7 @@ class ProfilesController {
   }
 }
 
-// ─── Response helpers ─────────────────────────────────────────────────────────
-Response _ok(dynamic data) => Response.ok(
-      jsonEncode(data),
-      headers: {'Content-Type': 'application/json'},
-    );
-
-Response _notFound(String msg) => Response.notFound(
-      jsonEncode({'error': msg}),
-      headers: {'Content-Type': 'application/json'},
-    );
-
-Response _serverError(String msg) => Response.internalServerError(
-      body: jsonEncode({'error': msg}),
-      headers: {'Content-Type': 'application/json'},
-    );
+const _jsonHeader = {'Content-Type': 'application/json'};
+Response _ok(dynamic data) => Response.ok(jsonEncode(data), headers: _jsonHeader);
+Response _notFound(String msg) => Response.notFound(jsonEncode({'error': msg}), headers: _jsonHeader);
+Response _serverError(String msg) => Response.internalServerError(body: jsonEncode({'error': msg}), headers: _jsonHeader);
