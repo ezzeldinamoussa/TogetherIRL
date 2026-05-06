@@ -52,3 +52,9 @@ app.*.symbols
 *.ipa
 
 analysis_options.yaml
+
+.env
+signaling/.env
+test/
+__pycache__/
+signaling/__pycache__/

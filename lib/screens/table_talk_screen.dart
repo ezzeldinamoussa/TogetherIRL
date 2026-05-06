@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import '../theme.dart';
+import '../services/table_talk_audio_service.dart';
 
 enum _VoiceGroup { foreground, background }
 
@@ -42,6 +43,11 @@ class TableTalkScreen extends StatefulWidget {
 
 class _TableTalkScreenState extends State<TableTalkScreen>
     with TickerProviderStateMixin {
+  final TableTalkAudioService _audioService = TableTalkAudioService();
+
+  bool _isConnectedToAudio = false;
+  bool _isConnectingToAudio = false;
+
   bool _selfMuted = false;
   bool _hasLeft = false;
 
@@ -76,14 +82,87 @@ class _TableTalkScreenState extends State<TableTalkScreen>
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _audioService.disconnect();
     super.dispose();
   }
 
-  void _toggleMute(int index) =>
-      setState(() => _participants[index].muted = !_participants[index].muted);
+  // ── Audio helpers ────────────────────────────────────────────
+  Future<void> _connectAudio() async {
+    setState(() {
+      _isConnectingToAudio = true;
+    });
 
-  void _setIndividualVolume(int index, double v) =>
-      setState(() => _participants[index].volume = v);
+    try {
+      await _audioService.connect(
+        username: 'Alex',
+        roomName: 'tabletalk-room',
+      );
+
+      setState(() {
+        _isConnectedToAudio = true;
+        _selfMuted = false;
+        _hasLeft = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not connect to TableTalk audio: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isConnectingToAudio = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _disconnectAudio() async {
+    await _audioService.disconnect();
+
+    if (!mounted) return;
+
+    setState(() {
+      _isConnectedToAudio = false;
+      _selfMuted = false;
+    });
+  }
+
+  Future<void> _toggleSelfMute() async {
+    final newMutedValue = !_selfMuted;
+
+    await _audioService.setMicEnabled(!newMutedValue);
+
+    setState(() {
+      _selfMuted = newMutedValue;
+    });
+  }
+
+  // ── Mixer helpers ────────────────────────────────────────────
+  void _toggleMute(int index) {
+    setState(() {
+      _participants[index].muted = !_participants[index].muted;
+    });
+
+    _audioService.setParticipantMuted(
+      participantIdentity: _participants[index].name,
+      muted: _participants[index].muted,
+    );
+  }
+
+  void _setIndividualVolume(int index, double v) {
+    setState(() {
+      _participants[index].volume = v;
+    });
+
+    _audioService.setParticipantVolume(
+      participantIdentity: _participants[index].name,
+      volume: v,
+    );
+  }
 
   // When the group slider moves, scale all participants in that group proportionally
   // so their individual sliders react visually.
@@ -91,31 +170,55 @@ class _TableTalkScreenState extends State<TableTalkScreen>
     final oldVol = isForeground ? _foregroundVolume : _backgroundVolume;
     final targetGroup =
         isForeground ? _VoiceGroup.foreground : _VoiceGroup.background;
+
     setState(() {
       if (isForeground) {
         _foregroundVolume = newVol;
       } else {
         _backgroundVolume = newVol;
       }
+
       for (final p in _participants) {
         if (p.group != targetGroup) continue;
+
         if (oldVol < 0.001) {
           // Was at zero — restore individuals to the new group value
           p.volume = newVol.clamp(0.0, 1.5);
         } else {
           p.volume = (p.volume * newVol / oldVol).clamp(0.0, 1.5);
         }
+
+        _audioService.setParticipantVolume(
+          participantIdentity: p.name,
+          volume: p.volume,
+        );
       }
     });
   }
 
-  void _toggleGroupMute(bool isForeground) => setState(() {
-        if (isForeground) {
-          _foregroundMuted = !_foregroundMuted;
-        } else {
-          _backgroundMuted = !_backgroundMuted;
-        }
-      });
+  void _toggleGroupMute(bool isForeground) {
+    final targetGroup =
+        isForeground ? _VoiceGroup.foreground : _VoiceGroup.background;
+
+    setState(() {
+      if (isForeground) {
+        _foregroundMuted = !_foregroundMuted;
+      } else {
+        _backgroundMuted = !_backgroundMuted;
+      }
+    });
+
+    final shouldMute = isForeground ? _foregroundMuted : _backgroundMuted;
+
+    for (final p in _participants) {
+      if (p.group != targetGroup) continue;
+
+      _audioService.setParticipantMuted(
+        participantIdentity: p.name,
+        muted: shouldMute,
+      );
+    }
+  }
 
   void _moveToForeground(int index) =>
       setState(() => _participants[index].group = _VoiceGroup.foreground);
@@ -178,7 +281,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(
-                    onPressed: () => setState(() => _hasLeft = false),
+                    onPressed: _connectAudio,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primary,
                       foregroundColor: Colors.white,
@@ -247,7 +350,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      if (!dimmed)
+                      if (!dimmed && _isConnectedToAudio)
                         AnimatedBuilder(
                           animation: _pulseAnim,
                           builder: (_, __) => Opacity(
@@ -266,8 +369,10 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                         Container(
                           width: 8,
                           height: 8,
-                          decoration: const BoxDecoration(
-                            color: Colors.grey,
+                          decoration: BoxDecoration(
+                            color: dimmed || !_isConnectedToAudio
+                                ? Colors.grey
+                                : const Color(0xFF4ADE80),
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -275,7 +380,11 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                       Text(
                         dimmed
                             ? 'Disconnected'
-                            : 'Live · ${_participants.length + 1} connected',
+                            : _isConnectingToAudio
+                                ? 'Connecting...'
+                                : _isConnectedToAudio
+                                    ? 'Live · ${_participants.length + 1} connected'
+                                    : 'Not connected',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -294,7 +403,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   GestureDetector(
-                    onTap: () => setState(() => _selfMuted = !_selfMuted),
+                    onTap: _isConnectedToAudio ? _toggleSelfMute : _connectAudio,
                     child: Container(
                       padding: const EdgeInsets.all(9),
                       decoration: BoxDecoration(
@@ -304,7 +413,9 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
-                        _selfMuted ? Icons.mic_off : Icons.mic,
+                        _isConnectedToAudio
+                            ? (_selfMuted ? Icons.mic_off : Icons.mic)
+                            : Icons.mic_none,
                         color: Colors.white,
                         size: 20,
                       ),
@@ -323,9 +434,9 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                           color: Colors.white.withValues(alpha: 0.4),
                         ),
                       ),
-                      child: const Text(
-                        'Leave',
-                        style: TextStyle(
+                      child: Text(
+                        _isConnectedToAudio ? 'Leave' : 'Join',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -411,7 +522,9 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                     ),
                     // Group mute button
                     GestureDetector(
-                      onTap: () => _toggleGroupMute(isForeground),
+                      onTap: _isConnectedToAudio
+                          ? () => _toggleGroupMute(isForeground)
+                          : null,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 6),
@@ -460,7 +573,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                         max: 1.5,
                         divisions: 30,
                         activeColor: AppTheme.primary,
-                        onChanged: groupMuted
+                        onChanged: groupMuted || !_isConnectedToAudio
                             ? null
                             : (v) => _setGroupVolume(isForeground, v),
                       ),
@@ -517,6 +630,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
                             ? () => _moveToBackground(e.key)
                             : () => _moveToForeground(e.key),
                         isInForeground: isForeground,
+                        enabled: _isConnectedToAudio,
                       ),
                     )
                     .toList(),
@@ -529,6 +643,11 @@ class _TableTalkScreenState extends State<TableTalkScreen>
 
   // ── Leave confirmation ───────────────────────────────────────
   Future<void> _confirmLeave(BuildContext context) async {
+    if (!_isConnectedToAudio) {
+      await _connectAudio();
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -551,7 +670,9 @@ class _TableTalkScreenState extends State<TableTalkScreen>
         ],
       ),
     );
+
     if (confirmed == true && mounted) {
+      await _disconnectAudio();
       setState(() => _hasLeft = true);
     }
   }
@@ -567,6 +688,7 @@ class _ParticipantTile extends StatefulWidget {
   final ValueChanged<double> onVolumeChanged;
   final VoidCallback onGroupToggle;
   final bool isInForeground;
+  final bool enabled;
 
   const _ParticipantTile({
     super.key,
@@ -575,6 +697,7 @@ class _ParticipantTile extends StatefulWidget {
     required this.onVolumeChanged,
     required this.onGroupToggle,
     required this.isInForeground,
+    required this.enabled,
   });
 
   @override
@@ -592,173 +715,176 @@ class _ParticipantTileState extends State<_ParticipantTile> {
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Column(
-          children: [
-            // ── Collapsed row ─────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                children: [
-                  // Avatar
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: isMuted
-                          ? p.color.withValues(alpha: 0.35)
-                          : p.color,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        p.initials,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
+      child: Opacity(
+        opacity: widget.enabled ? 1.0 : 0.55,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: Column(
+            children: [
+              // ── Collapsed row ─────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Row(
+                  children: [
+                    // Avatar
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: isMuted
+                            ? p.color.withValues(alpha: 0.35)
+                            : p.color,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          p.initials,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      p.name,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: isMuted
-                            ? AppTheme.mutedForeground
-                            : const Color(0xFF0F172A),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        p.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: isMuted
+                              ? AppTheme.mutedForeground
+                              : const Color(0xFF0F172A),
+                        ),
                       ),
                     ),
-                  ),
-                  // Group toggle
-                  GestureDetector(
-                    onTap: widget.onGroupToggle,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: widget.isInForeground
-                            ? Colors.grey.shade100
-                            : AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            widget.isInForeground
-                                ? Icons.arrow_downward
-                                : Icons.arrow_upward,
-                            size: 11,
-                            color: widget.isInForeground
-                                ? AppTheme.mutedForeground
-                                : AppTheme.primary,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            widget.isInForeground
-                                ? 'Background'
-                                : 'Foreground',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                    // Group toggle
+                    GestureDetector(
+                      onTap: widget.enabled ? widget.onGroupToggle : null,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: widget.isInForeground
+                              ? Colors.grey.shade100
+                              : AppTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              widget.isInForeground
+                                  ? Icons.arrow_downward
+                                  : Icons.arrow_upward,
+                              size: 11,
                               color: widget.isInForeground
                                   ? AppTheme.mutedForeground
                                   : AppTheme.primary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 3),
+                            Text(
+                              widget.isInForeground
+                                  ? 'Background'
+                                  : 'Foreground',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: widget.isInForeground
+                                    ? AppTheme.mutedForeground
+                                    : AppTheme.primary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  // Per-person mute
-                  GestureDetector(
-                    onTap: widget.onMuteToggle,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: isMuted
-                            ? AppTheme.destructive.withValues(alpha: 0.1)
-                            : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        isMuted ? Icons.volume_off : Icons.volume_up,
-                        size: 16,
-                        color: isMuted
-                            ? AppTheme.destructive
-                            : AppTheme.mutedForeground,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  // Expand/collapse fine-tune
-                  GestureDetector(
-                    onTap: () => setState(() => _expanded = !_expanded),
-                    child: Icon(
-                      _expanded
-                          ? Icons.expand_less
-                          : Icons.expand_more,
-                      size: 20,
-                      color: AppTheme.mutedForeground,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Fine-tune slider (expanded only) ──────────────
-            if (_expanded)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: Row(
-                  children: [
-                    Text(
-                      'Fine-tune',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.mutedForeground,
-                      ),
-                    ),
-                    Expanded(
-                      child: Slider(
-                        value: isMuted ? 0.0 : p.volume,
-                        min: 0.0,
-                        max: 1.5,
-                        divisions: 30,
-                        activeColor: AppTheme.primary,
-                        onChanged: isMuted ? null : widget.onVolumeChanged,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 38,
-                      child: Text(
-                        isMuted ? 'muted' : pct,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                    const SizedBox(width: 6),
+                    // Per-person mute
+                    GestureDetector(
+                      onTap: widget.enabled ? widget.onMuteToggle : null,
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: isMuted
+                              ? AppTheme.destructive.withValues(alpha: 0.1)
+                              : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          isMuted ? Icons.volume_off : Icons.volume_up,
+                          size: 16,
                           color: isMuted
                               ? AppTheme.destructive
-                              : const Color(0xFF0F172A),
+                              : AppTheme.mutedForeground,
                         ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // Expand/collapse fine-tune
+                    GestureDetector(
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Icon(
+                        _expanded ? Icons.expand_less : Icons.expand_more,
+                        size: 20,
+                        color: AppTheme.mutedForeground,
                       ),
                     ),
                   ],
                 ),
               ),
-          ],
+
+              // ── Fine-tune slider (expanded only) ──────────────
+              if (_expanded)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Fine-tune',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.mutedForeground,
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: isMuted ? 0.0 : p.volume,
+                          min: 0.0,
+                          max: 1.5,
+                          divisions: 30,
+                          activeColor: AppTheme.primary,
+                          onChanged: isMuted || !widget.enabled
+                              ? null
+                              : widget.onVolumeChanged,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 38,
+                        child: Text(
+                          isMuted ? 'muted' : pct,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: isMuted
+                                ? AppTheme.destructive
+                                : const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
