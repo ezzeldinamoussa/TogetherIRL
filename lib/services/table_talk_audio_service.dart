@@ -86,29 +86,30 @@ class TableTalkAudioService {
     required String participantIdentity,
     required bool muted,
   }) {
-    final room = _room;
-    if (room == null) return;
-
-    final participant = room.remoteParticipants[participantIdentity];
-    if (participant == null) return;
-
-    for (final publication in participant.audioTrackPublications) {
-      final track = publication.track;
-      if (track == null) continue;
-
-      track.mediaStreamTrack.enabled = !muted;
-    }
+    setParticipantVolume(
+      participantIdentity: participantIdentity,
+      volume: muted ? 0.0 : 1.0,
+    );
   }
 
   void setParticipantVolume({
     required String participantIdentity,
     required double volume,
   }) {
+    final room = _room;
+    if (room == null) return;
+
+    final participant = room.remoteParticipants[participantIdentity];
+    if (participant == null) return;
+
     final shouldMute = volume <= 0.0;
 
-    setParticipantMuted(
-      participantIdentity: participantIdentity,
-      muted: shouldMute,
-    );
+    for (final publication in participant.audioTrackPublications) {
+      if (shouldMute) {
+        publication.unsubscribe();
+      } else {
+        publication.subscribe();
+      }
+    }
   }
 }

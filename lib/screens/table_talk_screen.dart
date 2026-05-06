@@ -348,11 +348,29 @@ Future<String?> _askForUsername() async {
     }
   }
 
-  void _moveToForeground(int index) =>
-      setState(() => _participants[index].group = _VoiceGroup.foreground);
+  void _moveToForeground(int index) {
+  setState(() {
+    _participants[index].group = _VoiceGroup.foreground;
+    _participants[index].volume = _foregroundVolume;
+  });
 
-  void _moveToBackground(int index) =>
-      setState(() => _participants[index].group = _VoiceGroup.background);
+  _audioService.setParticipantVolume(
+    participantIdentity: _participants[index].name,
+    volume: _foregroundMuted ? 0.0 : _foregroundVolume,
+  );
+}
+
+void _moveToBackground(int index) {
+  setState(() {
+    _participants[index].group = _VoiceGroup.background;
+    _participants[index].volume = _backgroundVolume;
+  });
+
+  _audioService.setParticipantVolume(
+    participantIdentity: _participants[index].name,
+    volume: _backgroundMuted ? 0.0 : _backgroundVolume,
+  );
+}
 
   List<MapEntry<int, _Participant>> get _foregroundList => _participants
       .asMap()
