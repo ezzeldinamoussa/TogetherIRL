@@ -13,8 +13,8 @@ import 'screens/dashboard_screen.dart';
 import 'screens/group_screen.dart';
 import 'screens/planner_screen.dart';
 import 'screens/bill_screen.dart';
-import 'screens/photos_screen.dart';
 import 'screens/scrapbook_screen.dart';
+import 'screens/table_talk_screen.dart';
 
 void main() {
   runApp(const TogetherIRLApp());
@@ -61,19 +61,28 @@ class _MainShellState extends State<MainShell> {
     // Screens are defined here so we can pass callbacks between them
     final screens = [
       DashboardScreen(
-        onCreateGroup: () => _goToTab(1),   // tap "Create Group" → Groups tab
-        onViewPlanner: () => _goToTab(2),   // tap a group card → Planner tab
+        onCreateGroup: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const GroupScreen()),
+        ),
+        onViewPlanner: () => _goToTab(1),
+        onViewMemories: () => _goToTab(4),
       ),
-      const GroupScreen(),
       const PlannerScreen(),
+      const TableTalkScreen(),
       const BillScreen(),
-      const PhotosScreen(),
       const ScrapbookScreen(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TogetherIRL'),
+        title: Text(const [
+          'TogetherIRL',
+          'Planner',
+          'TableTalk',
+          'Bill Splitter',
+          'Memories',
+        ][_currentIndex]),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Divider(height: 1, color: AppTheme.border),
@@ -94,24 +103,19 @@ class _MainShellState extends State<MainShell> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.group_outlined),
-            activeIcon: Icon(Icons.group),
-            label: 'Groups',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.calendar_today_outlined),
             activeIcon: Icon(Icons.calendar_today),
             label: 'Planner',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.spatial_audio_outlined),
+            activeIcon: Icon(Icons.spatial_audio),
+            label: 'TableTalk',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.receipt_long_outlined),
             activeIcon: Icon(Icons.receipt_long),
             label: 'Bills',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.photo_camera_outlined),
-            activeIcon: Icon(Icons.photo_camera),
-            label: 'Photos',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.menu_book_outlined),

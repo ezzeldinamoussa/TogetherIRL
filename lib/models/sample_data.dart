@@ -248,6 +248,42 @@ final List<Hangout> sampleHangouts = [
   ),
 ];
 
+// ── Photo quests per itinerary stop (keyed by stop id) ───────
+const Map<String, List<String>> stopPhotoQuests = {
+  '1': [
+    'Capture the full table spread 🍳',
+    'Group selfie before the food arrives',
+    'Close-up of your order',
+  ],
+  '2': [
+    'Latte art shot ☕',
+    'Candid of someone mid-laugh',
+    'The cafe exterior or sign',
+  ],
+  '3': [
+    'Ice cream cone lineup 🍦',
+    'Group photo outside',
+    'Everyone\'s order side by side',
+  ],
+};
+
+// ── Active photo collection window ────────────────────────────
+PhotoCollection sampleActiveCollection = PhotoCollection(
+  hangoutId: '1',
+  hangoutTitle: 'Brunch & Dessert Adventure',
+  groupName: 'College Squad 🎓',
+  members: sampleMembers,
+  hangoutDate: DateTime(2026, 3, 8),
+  deadline: DateTime(2026, 3, 9, 23, 59, 59),
+  memberStatuses: {
+    '1': UploadStatus.done,     // You
+    '2': UploadStatus.done,     // Alex
+    '3': UploadStatus.pending,  // Jordan
+    '4': UploadStatus.skipped,  // Sam
+    '5': UploadStatus.pending,  // Casey
+  },
+);
+
 // ── Calendar events (NEW) ─────────────────────────────────────
 final Map<DateTime, List<Map<String, String>>> sampleCalendarEvents = {
   DateTime(2026, 3, 8): [

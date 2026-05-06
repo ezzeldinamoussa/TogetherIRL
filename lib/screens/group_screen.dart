@@ -31,19 +31,16 @@ class _GroupScreenState extends State<GroupScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<GroupProvider>();
 
-    return SingleChildScrollView(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Create Group'),
+      ),
+      body: SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header ──────────────────────────────────────────
-          const Text(
-            'Create a Group',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-          ),
           const SizedBox(height: 4),
-          const SubTitle('Start planning your next hangout together'),
-          const SizedBox(height: 20),
 
           // ── Group name ───────────────────────────────────────
           Card(
@@ -203,6 +200,7 @@ class _GroupScreenState extends State<GroupScreen> {
           const SizedBox(height: 16),
         ],
       ),
+    ),
     );
   }
 

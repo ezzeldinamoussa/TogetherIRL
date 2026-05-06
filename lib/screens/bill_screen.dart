@@ -25,15 +25,6 @@ class BillScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header ──────────────────────────────────────────
-          const Text(
-            'Bill Splitter 🧾',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          const SubTitle('Select who ordered each item'),
-          const SizedBox(height: 16),
-
           // ── Upload / scan banner ─────────────────────────────
           Card(
             child: Padding(
