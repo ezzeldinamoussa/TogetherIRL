@@ -11,6 +11,18 @@ class TableTalkAudioService {
 
   bool get isConnected => _room != null;
 
+  List<String> getParticipantNames() {
+    final room = _room;
+
+    if (room == null) {
+      return [];
+    }
+
+    return room.remoteParticipants.values
+        .map((participant) => participant.identity)
+        .toList();
+  }
+
   Future<bool> requestMicrophonePermission() async {
     final status = await Permission.microphone.request();
     return status.isGranted;

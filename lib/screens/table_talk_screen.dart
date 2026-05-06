@@ -56,12 +56,18 @@ class _TableTalkScreenState extends State<TableTalkScreen>
   bool _foregroundMuted = false;
   bool _backgroundMuted = false;
 
-  // All participants start in Background by default
-  final List<_Participant> _participants = [
-    _Participant(name: 'Alex', color: Color(0xFF3B82F6)),
-    _Participant(name: 'Jordan', color: Color(0xFF8B5CF6)),
-    _Participant(name: 'Sam', color: Color(0xFF22C55E)),
-    _Participant(name: 'Casey', color: Color(0xFFF97316)),
+  // Participants are no longer hardcoded.
+  // This list gets filled with real LiveKit remote participants after joining.
+  final List<_Participant> _participants = [];
+
+  // Used to give each real participant a different avatar color.
+  final List<Color> _participantColors = const [
+    Color(0xFF3B82F6),
+    Color(0xFF8B5CF6),
+    Color(0xFF22C55E),
+    Color(0xFFF97316),
+    Color(0xFFEC4899),
+    Color(0xFF14B8A6),
   ];
 
   late final AnimationController _pulseCtrl;
@@ -81,6 +87,10 @@ class _TableTalkScreenState extends State<TableTalkScreen>
 
   @override
   void dispose() {
+    // Remove the room listener before disconnecting so the screen
+    // does not try to update after it has already been closed.
+    _audioService.room?.removeListener(_roomListener);
+
     _pulseCtrl.dispose();
     _audioService.disconnect();
     super.dispose();
@@ -94,9 +104,16 @@ class _TableTalkScreenState extends State<TableTalkScreen>
 
     try {
       await _audioService.connect(
-        username: 'Alex',
+        username: 'Jasmine',
         roomName: 'tabletalk-room',
       );
+
+      // Pull the current LiveKit participant list once after joining.
+      _syncParticipantsFromLiveKit();
+
+      // Listen for LiveKit room changes.
+      // This lets the UI update when someone joins, leaves, or publishes audio.
+      _audioService.room?.addListener(_roomListener);
 
       setState(() {
         _isConnectedToAudio = true;
@@ -121,6 +138,9 @@ class _TableTalkScreenState extends State<TableTalkScreen>
   }
 
   Future<void> _disconnectAudio() async {
+    // Stop listening to LiveKit room updates before disconnecting.
+    _audioService.room?.removeListener(_roomListener);
+
     await _audioService.disconnect();
 
     if (!mounted) return;
@@ -128,6 +148,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
     setState(() {
       _isConnectedToAudio = false;
       _selfMuted = false;
+      _participants.clear();
     });
   }
 
@@ -138,6 +159,41 @@ class _TableTalkScreenState extends State<TableTalkScreen>
 
     setState(() {
       _selfMuted = newMutedValue;
+    });
+  }
+
+  // This runs whenever LiveKit says the room changed.
+  // It keeps the UI participant list synced with the actual voice room.
+  void _roomListener() {
+    _syncParticipantsFromLiveKit();
+  }
+
+  void _syncParticipantsFromLiveKit() {
+    final liveKitNames = _audioService.getParticipantNames();
+
+    setState(() {
+      for (final name in liveKitNames) {
+        final alreadyExists = _participants.any((p) => p.name == name);
+
+        if (!alreadyExists) {
+          final color =
+              _participantColors[_participants.length % _participantColors.length];
+
+          _participants.add(
+            _Participant(
+              name: name,
+              color: color,
+              volume: _backgroundVolume,
+              group: _VoiceGroup.background,
+            ),
+          );
+        }
+      }
+
+      // Remove people from the UI if they are no longer in the LiveKit room.
+      _participants.removeWhere(
+        (p) => !liveKitNames.contains(p.name),
+      );
     });
   }
 
@@ -606,7 +662,9 @@ class _TableTalkScreenState extends State<TableTalkScreen>
               child: Text(
                 isForeground
                     ? 'Tap "Foreground" on someone in the Background group'
-                    : 'Everyone is in the foreground',
+                    : _isConnectedToAudio
+                        ? 'Waiting for others to join...'
+                        : 'Join audio to see people at the table',
                 style: TextStyle(
                   fontSize: 13,
                   color: AppTheme.mutedForeground,
