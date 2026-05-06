@@ -50,6 +50,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
 
   bool _selfMuted = false;
   bool _hasLeft = false;
+  String? _username;
 
   double _foregroundVolume = 1.0;
   double _backgroundVolume = 0.5;
@@ -96,46 +97,112 @@ class _TableTalkScreenState extends State<TableTalkScreen>
     super.dispose();
   }
 
-  // ── Audio helpers ────────────────────────────────────────────
-  Future<void> _connectAudio() async {
-    setState(() {
-      _isConnectingToAudio = true;
-    });
+Future<String?> _askForUsername() async {
+  final controller = TextEditingController(text: _username ?? '');
 
-    try {
-      await _audioService.connect(
-        username: 'Jasmine',
-        roomName: 'tabletalk-room',
-      );
+  final name = await showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      title: const Text('Join TableTalk'),
 
-      // Pull the current LiveKit participant list once after joining.
-      _syncParticipantsFromLiveKit();
+      // Username input field
+      content: TextField(
+        controller: controller,
+        autofocus: true,
 
-      // Listen for LiveKit room changes.
-      // This lets the UI update when someone joins, leaves, or publishes audio.
-      _audioService.room?.addListener(_roomListener);
+        // Lets the enter key submit properly
+        textInputAction: TextInputAction.done,
 
-      setState(() {
-        _isConnectedToAudio = true;
-        _selfMuted = false;
-        _hasLeft = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not connect to TableTalk audio: $e'),
+        decoration: const InputDecoration(
+          labelText: 'Your name',
+          hintText: 'Enter your name',
         ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isConnectingToAudio = false;
-        });
-      }
+
+        // Handles pressing enter on the keyboard
+        onSubmitted: (value) {
+          final typedName = value.trim();
+
+          if (typedName.isEmpty) return;
+
+          Navigator.pop(context, typedName);
+        },
+      ),
+
+      actions: [
+        // Cancel button
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+
+        // Join button
+        ElevatedButton(
+          onPressed: () {
+            final typedName = controller.text.trim();
+
+            if (typedName.isEmpty) return;
+
+            Navigator.pop(context, typedName);
+          },
+          child: const Text('Join'),
+        ),
+      ],
+    ),
+  );
+
+  return name;
+}
+  // ── Audio helpers ────────────────────────────────────────────
+ Future<void> _connectAudio() async {
+  // Ask the user for a name before joining.
+  // If they already entered one before, reuse it.
+  final username = _username ?? await _askForUsername();
+
+  // User cancelled the popup.
+  if (username == null || username.trim().isEmpty) {
+    return;
+  }
+
+  setState(() {
+    _username = username.trim();
+    _isConnectingToAudio = true;
+  });
+
+  try {
+    await _audioService.connect(
+      username: _username!,
+      roomName: 'tabletalk-room',
+    );
+
+    // Pull the current LiveKit participant list once after joining.
+    _syncParticipantsFromLiveKit();
+
+    // Listen for LiveKit room changes.
+    // This lets the UI update when someone joins, leaves, or publishes audio.
+    _audioService.room?.addListener(_roomListener);
+
+    setState(() {
+      _isConnectedToAudio = true;
+      _selfMuted = false;
+      _hasLeft = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Could not connect to TableTalk audio: $e'),
+      ),
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isConnectingToAudio = false;
+      });
     }
   }
+}
 
   Future<void> _disconnectAudio() async {
     // Stop listening to LiveKit room updates before disconnecting.
@@ -165,10 +232,15 @@ class _TableTalkScreenState extends State<TableTalkScreen>
   // This runs whenever LiveKit says the room changed.
   // It keeps the UI participant list synced with the actual voice room.
   void _roomListener() {
+  // Prevents updates after the widget has been disposed
+    if (!mounted) return;
+
+  // Refresh participant list from LiveKit
     _syncParticipantsFromLiveKit();
-  }
+}
 
   void _syncParticipantsFromLiveKit() {
+    if (!mounted) return;
     final liveKitNames = _audioService.getParticipantNames();
 
     setState(() {
