@@ -13,6 +13,15 @@ dependencies:
   # State management
   provider: ^6.1.2
 
+  # Supabase (auth + database)
+  supabase_flutter: ^2.8.4
+
+  # HTTP client for backend API calls
+  http: ^1.2.0
+
+  # Image picker (receipt scanning)
+  image_picker: ^1.1.2
+
   # Icons
   cupertino_icons: ^1.0.6
 

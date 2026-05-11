@@ -1,15 +1,9 @@
-// ─────────────────────────────────────────────────────────────
-// planner_screen.dart  –  Day itinerary view
-// Mirrors the React <DayPlanner> component
-// ─────────────────────────────────────────────────────────────
-
 import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart';
-
+import 'package:provider/provider.dart';
 import '../models/models.dart';
-import '../models/sample_data.dart';
+import '../providers/group_provider.dart';
+import '../providers/hangout_provider.dart';
 import '../theme.dart';
-import '../widgets/common_widgets.dart';
 
 class PlannerScreen extends StatefulWidget {
   const PlannerScreen({super.key});
@@ -19,539 +13,1001 @@ class PlannerScreen extends StatefulWidget {
 }
 
 class _PlannerScreenState extends State<PlannerScreen> {
-  static final DateTime _today = DateTime(2026, 3, 8);
+  Group? _selectedGroup;
 
-  DateTime _focusedDay = DateTime(2026, 3, 8);
-  DateTime _selectedDay = DateTime(2026, 3, 8);
-
-  bool _isSameDate(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
-  List<ItineraryStop> get _currentItinerary {
-    for (final entry in sampleItinerariesByDate.entries) {
-      if (_isSameDate(entry.key, _selectedDay)) return entry.value;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Auto-select first group and load its hangouts
+    final groups = context.read<GroupProvider>().groups;
+    if (_selectedGroup == null && groups.isNotEmpty) {
+      _selectedGroup = groups.first;
+      _loadHangouts(_selectedGroup!.id);
     }
-    return [];
   }
 
-  void _goToToday() => setState(() {
-        _selectedDay = _today;
-        _focusedDay = _today;
-      });
-
-  String _monthName(int m) => const [
-        '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ][m];
-
-  List<Map<String, String>> _getCalendarEventsForDay(DateTime day) {
-    for (final entry in sampleCalendarEvents.entries) {
-      if (_isSameDate(entry.key, day)) return entry.value;
-    }
-    return [];
+  void _loadHangouts(String groupId) {
+    context.read<HangoutProvider>().loadHangouts(groupId);
   }
 
-  List<dynamic> _getEventMarkersForDay(DateTime day) =>
-      _getCalendarEventsForDay(day);
+  void _selectGroup(Group group) {
+    setState(() => _selectedGroup = group);
+    _loadHangouts(group.id);
+  }
 
-  void _openCalendarDialog() {
-    showDialog(
+  void _showCreateHangout() {
+    if (_selectedGroup == null) return;
+    showModalBottomSheet(
       context: context,
-      builder: (context) {
-        DateTime tempFocusedDay = _focusedDay;
-        DateTime tempSelectedDay = _selectedDay;
-        bool showDayDetails = false;
-
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: StatefulBuilder(
-            builder: (context, setDialogState) {
-              final selectedEvents = _getCalendarEventsForDay(tempSelectedDay);
-
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Top row: title + close whole calendar
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Select a Date',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Calendar
-                      TableCalendar<dynamic>(
-                        firstDay: DateTime.utc(2020, 1, 1),
-                        lastDay: DateTime.utc(2030, 12, 31),
-                        focusedDay: tempFocusedDay,
-                        selectedDayPredicate: (day) {
-                          return isSameDay(tempSelectedDay, day);
-                        },
-                        eventLoader: _getEventMarkersForDay,
-                        onDaySelected: (selectedDay, focusedDay) {
-                          setDialogState(() {
-                            tempSelectedDay = selectedDay;
-                            tempFocusedDay = focusedDay;
-                            showDayDetails = true;
-                          });
-
-                          setState(() {
-                            _selectedDay = selectedDay;
-                            _focusedDay = focusedDay;
-                          });
-                        },
-                        headerStyle: const HeaderStyle(
-                          formatButtonVisible: false,
-                          titleCentered: true,
-                        ),
-                        calendarFormat: CalendarFormat.month,
-                        calendarStyle: CalendarStyle(
-                          todayDecoration: const BoxDecoration(
-                            color: Colors.orange,
-                            shape: BoxShape.circle,
-                          ),
-                          selectedDecoration: BoxDecoration(
-                            color: AppTheme.primary,
-                            shape: BoxShape.circle,
-                          ),
-                          markerDecoration: const BoxDecoration(
-                            color: Colors.grey,
-                            shape: BoxShape.circle,
-                          ),
-                          markersMaxCount: 1,
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Details panel inside same popup
-                      if (showDayDetails)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppTheme.border),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Plans for ${tempSelectedDay.month}/${tempSelectedDay.day}/${tempSelectedDay.year}',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () {
-                                      setDialogState(() {
-                                        showDayDetails = false;
-                                      });
-                                    },
-                                    icon: const Icon(Icons.close, size: 20),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-
-                              if (selectedEvents.isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8),
-                                  child: Text(
-                                    'No events planned for this day.',
-                                    style: TextStyle(fontSize: 15),
-                                  ),
-                                )
-                              else
-                                ...selectedEvents.map((event) {
-                                  return Card(
-                                    margin:
-                                        const EdgeInsets.symmetric(vertical: 6),
-                                    child: ListTile(
-                                      leading: const Icon(Icons.event_note),
-                                      title: Text(event['title'] ?? ''),
-                                      subtitle: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text('Time: ${event['time'] ?? ''}'),
-                                          Text(
-                                              'Group: ${event['group'] ?? ''}'),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                }),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final itinerary = _currentItinerary;
-    final hasItinerary = itinerary.isNotEmpty;
-    final totalDistance = itinerary.fold<double>(
-      0,
-      (sum, s) => sum + double.parse(s.distance.replaceAll(' mi', '')),
-    );
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Date header row ──────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${_monthName(_selectedDay.month)} ${_selectedDay.day}, ${_selectedDay.year}',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              TextButton(
-                onPressed: _goToToday,
-                child: const Text('Today'),
-              ),
-              const SizedBox(width: 4),
-              InkWell(
-                onTap: _openCalendarDialog,
-                borderRadius: BorderRadius.circular(24),
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.calendar_month,
-                    color: AppTheme.primary,
-                    size: 22,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          if (hasItinerary) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _SummaryStat(
-                      icon: Icons.place,
-                      label: 'Total distance',
-                      value: '${totalDistance.toStringAsFixed(1)} mi',
-                    ),
-                    _SummaryStat(
-                      icon: Icons.attach_money,
-                      label: 'Est. budget',
-                      value: r'$35–45',
-                    ),
-                    _SummaryStat(
-                      icon: Icons.schedule,
-                      label: 'Duration',
-                      value: '~5 hrs',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            const SectionTitle('Itinerary'),
-            const SizedBox(height: 12),
-
-            ...itinerary.asMap().entries.map((entry) {
-              final i = entry.key;
-              final stop = entry.value;
-              final isLast = i == itinerary.length - 1;
-
-              return Column(
-                children: [
-                  _ItineraryCard(stop: stop, index: i),
-                  if (!isLast)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 28),
-                          Container(
-                            width: 2,
-                            height: 24,
-                            color: AppTheme.border,
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            Icons.directions_walk,
-                            size: 14,
-                            color: AppTheme.mutedForeground,
-                          ),
-                          const SizedBox(width: 4),
-                          SubTitle('${itinerary[i + 1].distance} walk'),
-                        ],
-                      ),
-                    ),
-                ],
-              );
-            }),
-
-            const SizedBox(height: 24),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.navigation, size: 18),
-                label: const Text('Start Navigation'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Regenerate Plan'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 60),
-            Center(
-              child: Column(
-                children: [
-                  Icon(Icons.event_busy, size: 64, color: AppTheme.border),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No hangout planned',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SubTitle('Tap the calendar to pick a day with plans,\nor use Today to jump back.'),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 16),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      builder: (_) => _CreateHangoutSheet(group: _selectedGroup!),
     );
   }
-}
-
-class _SummaryStat extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _SummaryStat({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) => Column(
-        children: [
-          Icon(icon, size: 20, color: AppTheme.primary),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 14,
-            ),
-          ),
-          SubTitle(label),
-        ],
-      );
-}
-
-class _ItineraryCard extends StatelessWidget {
-  final dynamic stop;
-  final int index;
-
-  const _ItineraryCard({required this.stop, required this.index});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Column(
+    final groups = context.watch<GroupProvider>().groups;
+    final hangoutProvider = context.watch<HangoutProvider>();
+
+    if (groups.isEmpty) {
+      return const _NoGroupsState();
+    }
+
+    final hangouts = _selectedGroup != null
+        ? hangoutProvider.hangoutsFor(_selectedGroup!.id)
+        : <Map<String, dynamic>>[];
+    final loading = _selectedGroup != null
+        ? hangoutProvider.isLoading(_selectedGroup!.id)
+        : false;
+
+    return Scaffold(
+      body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(12)),
-            child: SizedBox(
-              height: 140,
-              width: double.infinity,
-              child: NetImage(stop.imageUrl),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
+          // ── Group selector ─────────────────────────────────────
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    AppBadge(stop.type, color: AppTheme.primary),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.green.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '${stop.matchScore}% match',
-                        style: const TextStyle(
-                          color: AppTheme.green,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                const Text('Planning for',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.mutedForeground)),
                 const SizedBox(height: 8),
-                Text(
-                  stop.name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: groups.map((group) {
+                      final selected = _selectedGroup?.id == group.id;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => _selectGroup(group),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? AppTheme.primary
+                                  : AppTheme.secondary,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(group.emoji,
+                                    style: const TextStyle(fontSize: 14)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  group.name,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: selected
+                                        ? Colors.white
+                                        : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
-                  children: [
-                    _Detail(Icons.schedule, stop.time),
-                    _Detail(Icons.timer_outlined, stop.duration),
-                    _Detail(Icons.place_outlined, stop.distance),
-                    _Detail(Icons.attach_money, stop.priceRange),
-                    _Detail(Icons.star, stop.rating.toString()),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SubTitle(stop.address),
-                _PhotoQuestsSection(stopId: stop.id),
               ],
             ),
           ),
+          const Divider(height: 1),
+
+          // ── Hangout list ───────────────────────────────────────
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : hangouts.isEmpty
+                    ? _EmptyHangoutsState(onCreateTap: _showCreateHangout)
+                    : RefreshIndicator(
+                        onRefresh: () =>
+                            hangoutProvider.loadHangouts(_selectedGroup!.id),
+                        child: ListView.builder(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                          itemCount: hangouts.length,
+                          itemBuilder: (context, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _HangoutCard(
+                              hangout: hangouts[i],
+                              group: _selectedGroup!,
+                            ),
+                          ),
+                        ),
+                      ),
+          ),
         ],
       ),
+      floatingActionButton: _selectedGroup != null
+          ? FloatingActionButton.extended(
+              onPressed: _showCreateHangout,
+              icon: const Icon(Icons.add),
+              label: const Text('New Hangout'),
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            )
+          : null,
     );
   }
 }
 
-class _PhotoQuestsSection extends StatelessWidget {
-  final String stopId;
-  const _PhotoQuestsSection({required this.stopId});
+// ── Hangout card ───────────────────────────────────────────────
+class _HangoutCard extends StatelessWidget {
+  final Map<String, dynamic> hangout;
+  final Group group;
+
+  const _HangoutCard({required this.hangout, required this.group});
+
+  Color get _statusColor {
+    switch (hangout['status']) {
+      case 'collecting_preferences': return const Color(0xFFF59E0B);
+      case 'planning': return AppTheme.primary;
+      case 'confirmed': return AppTheme.green;
+      case 'completed': return AppTheme.mutedForeground;
+      default: return AppTheme.mutedForeground;
+    }
+  }
+
+  String get _statusLabel {
+    switch (hangout['status']) {
+      case 'collecting_preferences': return 'Collecting responses';
+      case 'planning': return 'Planning';
+      case 'confirmed': return 'Confirmed';
+      case 'completed': return 'Completed';
+      default: return hangout['status'] ?? '';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final quests = stopPhotoQuests[stopId];
-    if (quests == null || quests.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HangoutDetailScreen(
+            hangout: hangout,
+            group: group,
+          ),
+        ),
+      ),
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF0FDF4),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFBBF7D0)),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.camera_alt_outlined,
-                    size: 14, color: AppTheme.green),
-                const SizedBox(width: 6),
-                Text(
-                  'Photo ideas here',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.green,
+                Expanded(
+                  child: Text(
+                    hangout['title'] ?? 'Hangout',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _statusLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _statusColor,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            ...quests.map(
-              (q) => Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Row(
+            if (hangout['planned_for'] != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today,
+                      size: 12, color: AppTheme.mutedForeground),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatDate(hangout['planned_for'] as String),
+                    style: const TextStyle(
+                        fontSize: 13, color: AppTheme.mutedForeground),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.people_outline,
+                    size: 14, color: AppTheme.mutedForeground),
+                const SizedBox(width: 4),
+                Text(
+                  'Tap to view & submit preferences',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppTheme.mutedForeground),
+                ),
+                const Spacer(),
+                const Icon(Icons.chevron_right,
+                    color: AppTheme.mutedForeground),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(String iso) {
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${dt.month}/${dt.day}/${dt.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+}
+
+// ── Create hangout sheet ───────────────────────────────────────
+class _CreateHangoutSheet extends StatefulWidget {
+  final Group group;
+  const _CreateHangoutSheet({required this.group});
+
+  @override
+  State<_CreateHangoutSheet> createState() => _CreateHangoutSheetState();
+}
+
+class _CreateHangoutSheetState extends State<_CreateHangoutSheet> {
+  final _titleController = TextEditingController();
+  DateTime? _selectedDate;
+  TimeOfDay? _selectedTime;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2030),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.light(primary: AppTheme.primary),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedTime ?? const TimeOfDay(hour: 18, minute: 0),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.light(primary: AppTheme.primary),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _selectedTime = picked);
+  }
+
+  String? get _plannedFor {
+    if (_selectedDate == null) return null;
+    final time = _selectedTime ?? const TimeOfDay(hour: 18, minute: 0);
+    final dt = DateTime(
+      _selectedDate!.year,
+      _selectedDate!.month,
+      _selectedDate!.day,
+      time.hour,
+      time.minute,
+    );
+    return dt.toIso8601String();
+  }
+
+  String get _dateLabel {
+    if (_selectedDate == null) return 'Pick a date';
+    final d = _selectedDate!;
+    return '${d.month}/${d.day}/${d.year}';
+  }
+
+  String get _timeLabel {
+    if (_selectedTime == null) return 'Pick a time';
+    final h = _selectedTime!.hourOfPeriod == 0 ? 12 : _selectedTime!.hourOfPeriod;
+    final m = _selectedTime!.minute.toString().padLeft(2, '0');
+    final period = _selectedTime!.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $period';
+  }
+
+  Future<void> _create() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      setState(() => _error = 'Give this hangout a title');
+      return;
+    }
+    if (_selectedDate == null) {
+      setState(() => _error = 'Pick a date for the hangout');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await context
+          .read<HangoutProvider>()
+          .createHangout(widget.group.id, title, plannedFor: _plannedFor);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Text(widget.group.emoji,
+                  style: const TextStyle(fontSize: 24)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('• ',
+                    const Text('New Hangout',
                         style: TextStyle(
-                            fontSize: 12, color: AppTheme.mutedForeground)),
-                    Expanded(
-                      child: Text(q,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.mutedForeground)),
-                    ),
+                            fontSize: 22, fontWeight: FontWeight.w800)),
+                    Text(widget.group.name,
+                        style: const TextStyle(
+                            color: AppTheme.mutedForeground, fontSize: 13)),
                   ],
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _titleController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Hangout title',
+              hintText: 'e.g., Friday Night Out, Weekend Brunch',
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Date + Time pickers
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: _selectedDate != null
+                          ? AppTheme.primary.withOpacity(0.08)
+                          : AppTheme.secondary,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _selectedDate != null
+                            ? AppTheme.primary.withOpacity(0.3)
+                            : AppTheme.border,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.calendar_today,
+                            size: 16,
+                            color: _selectedDate != null
+                                ? AppTheme.primary
+                                : AppTheme.mutedForeground),
+                        const SizedBox(width: 8),
+                        Text(
+                          _dateLabel,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: _selectedDate != null
+                                ? AppTheme.primary
+                                : AppTheme.mutedForeground,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _selectedDate != null ? _pickTime : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: _selectedTime != null
+                          ? AppTheme.primary.withOpacity(0.08)
+                          : AppTheme.secondary,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _selectedTime != null
+                            ? AppTheme.primary.withOpacity(0.3)
+                            : AppTheme.border,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.access_time,
+                            size: 16,
+                            color: _selectedTime != null
+                                ? AppTheme.primary
+                                : AppTheme.mutedForeground),
+                        const SizedBox(width: 8),
+                        Text(
+                          _timeLabel,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: _selectedTime != null
+                                ? AppTheme.primary
+                                : AppTheme.mutedForeground,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!,
+                style: const TextStyle(color: Colors.red, fontSize: 13)),
+          ],
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _loading ? null : _create,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                backgroundColor: AppTheme.primary,
+              ),
+              child: _loading
+                  ? const SizedBox(
+                      height: 20, width: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('Create Hangout',
+                      style: TextStyle(fontSize: 16)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Hangout detail + preferences ───────────────────────────────
+class HangoutDetailScreen extends StatefulWidget {
+  final Map<String, dynamic> hangout;
+  final Group group;
+
+  const HangoutDetailScreen({
+    super.key,
+    required this.hangout,
+    required this.group,
+  });
+
+  @override
+  State<HangoutDetailScreen> createState() => _HangoutDetailScreenState();
+}
+
+class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
+  // Preferences form state
+  String? _budget;
+  final Set<String> _activities = {};
+  final Set<String> _foods = {};
+  final _notesController = TextEditingController();
+  bool _submitting = false;
+  bool _submitted = false;
+  String? _error;
+
+  static const _budgets = ['\$', '\$\$', '\$\$\$'];
+  static const _activityOptions = [
+    'Food', 'Coffee', 'Dessert', 'Activities', 'Shopping', 'Nightlife'
+  ];
+  static const _foodOptions = [
+    'Italian', 'Mexican', 'Asian', 'American', 'Mediterranean',
+    'Korean', 'Thai', 'Indian', 'Mediterranean', 'BBQ',
+  ];
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _deleteHangout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Hangout?'),
+        content: const Text('This will permanently delete this hangout and all preferences. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await context.read<HangoutProvider>().deleteHangout(
+          widget.hangout['id'] as String, widget.group.id);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _submit() async {
+    setState(() { _submitting = true; _error = null; });
+    try {
+      final prefs = <String, dynamic>{
+        if (_budget != null) 'budget_range': _budget,
+        if (_activities.isNotEmpty) 'activity_types': _activities.toList(),
+        if (_foods.isNotEmpty) 'food_preferences': _foods.toList(),
+        if (_notesController.text.trim().isNotEmpty)
+          'notes': _notesController.text.trim(),
+      };
+      await context
+          .read<HangoutProvider>()
+          .submitPreferences(
+              widget.hangout['id'] as String, widget.group.id, prefs);
+      setState(() => _submitted = true);
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hangout = widget.hangout;
+    final status = hangout['status'] as String? ?? '';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(hangout['title'] ?? 'Hangout'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            tooltip: 'Delete hangout',
+            onPressed: _deleteHangout,
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // ── Status banner ──────────────────────────────────────
+          _StatusBanner(status: status),
+          const SizedBox(height: 20),
+
+          // ── Preferences form ───────────────────────────────────
+          if (status == 'collecting_preferences') ...[
+            if (_submitted)
+              _SuccessBanner(onEdit: () => setState(() => _submitted = false))
+            else ...[
+              const Text('Your Preferences',
+                  style: TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              const Text(
+                'Tell the group what you\'re feeling.',
+                style: TextStyle(color: AppTheme.mutedForeground),
+              ),
+              const SizedBox(height: 20),
+
+              // Budget
+              const Text('Budget',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Row(
+                children: _budgets.map((b) {
+                  final sel = _budget == b;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _budget = b),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: sel
+                              ? AppTheme.primary
+                              : AppTheme.secondary,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: sel
+                                ? AppTheme.primary
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Text(
+                          b,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                            color: sel ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+
+              // Activity types
+              _ChipSelector(
+                title: 'Activity Types',
+                options: _activityOptions,
+                selected: _activities,
+                onToggle: (v) => setState(() =>
+                    _activities.contains(v)
+                        ? _activities.remove(v)
+                        : _activities.add(v)),
+              ),
+              const SizedBox(height: 20),
+
+              // Food preferences
+              _ChipSelector(
+                title: 'Food Preferences',
+                options: _foodOptions,
+                selected: _foods,
+                onToggle: (v) => setState(() =>
+                    _foods.contains(v)
+                        ? _foods.remove(v)
+                        : _foods.add(v)),
+              ),
+              const SizedBox(height: 20),
+
+              // Notes
+              const Text('Notes (optional)',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _notesController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Anywhere but that Thai place please...',
+                ),
+              ),
+
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!,
+                    style: const TextStyle(
+                        color: Colors.red, fontSize: 13)),
+              ],
+              const SizedBox(height: 24),
+
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _submitting ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                  child: _submitting
+                      ? const SizedBox(
+                          height: 20, width: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Submit Preferences',
+                          style: TextStyle(fontSize: 16)),
+                ),
+              ),
+            ],
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.secondary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Preferences are locked once planning begins.',
+                style: TextStyle(color: AppTheme.mutedForeground),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Status banner ──────────────────────────────────────────────
+class _StatusBanner extends StatelessWidget {
+  final String status;
+  const _StatusBanner({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final configs = {
+      'collecting_preferences': (
+        icon: Icons.hourglass_top_rounded,
+        color: const Color(0xFFF59E0B),
+        bg: const Color(0xFFFFFBEB),
+        label: 'Collecting Preferences',
+        sub: 'Waiting for everyone to submit their preferences.',
+      ),
+      'planning': (
+        icon: Icons.edit_note,
+        color: AppTheme.primary,
+        bg: const Color(0xFFEEF2FF),
+        label: 'Planning in Progress',
+        sub: 'All responses are in — the organizer is finalizing the plan.',
+      ),
+      'confirmed': (
+        icon: Icons.check_circle_outline,
+        color: AppTheme.green,
+        bg: const Color(0xFFF0FDF4),
+        label: 'Hangout Confirmed!',
+        sub: 'Everything is locked in. Get ready!',
+      ),
+      'completed': (
+        icon: Icons.star_outline,
+        color: AppTheme.mutedForeground,
+        bg: AppTheme.secondary,
+        label: 'Completed',
+        sub: 'This hangout is done. Check Memories for the recap.',
+      ),
+    };
+
+    final c = configs[status];
+    if (c == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(c.icon, color: c.color, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(c.label,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, color: c.color)),
+                const SizedBox(height: 2),
+                Text(c.sub,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppTheme.mutedForeground)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Success banner ─────────────────────────────────────────────
+class _SuccessBanner extends StatelessWidget {
+  final VoidCallback onEdit;
+  const _SuccessBanner({required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.green.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.check_circle, color: AppTheme.green, size: 36),
+          const SizedBox(height: 10),
+          const Text('Preferences submitted!',
+              style:
+                  TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          const Text(
+            'Waiting for the rest of the group to respond.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.mutedForeground, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: onEdit,
+            child: const Text('Edit my preferences'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Chip selector ──────────────────────────────────────────────
+class _ChipSelector extends StatelessWidget {
+  final String title;
+  final List<String> options;
+  final Set<String> selected;
+  final void Function(String) onToggle;
+
+  const _ChipSelector({
+    required this.title,
+    required this.options,
+    required this.selected,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options.map((o) {
+            final sel = selected.contains(o);
+            return GestureDetector(
+              onTap: () => onToggle(o),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: sel
+                      ? AppTheme.primary.withOpacity(0.1)
+                      : AppTheme.secondary,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color:
+                        sel ? AppTheme.primary : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: Text(
+                  o,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: sel
+                        ? AppTheme.primary
+                        : const Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Empty states ───────────────────────────────────────────────
+class _NoGroupsState extends StatelessWidget {
+  const _NoGroupsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('📅', style: TextStyle(fontSize: 48)),
+            SizedBox(height: 16),
+            Text('No groups yet',
+                style:
+                    TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            SizedBox(height: 8),
+            Text(
+              'Create a group on the Home tab first, then come back to plan a hangout.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.mutedForeground),
             ),
           ],
         ),
@@ -560,26 +1016,40 @@ class _PhotoQuestsSection extends StatelessWidget {
   }
 }
 
-class _Detail extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _Detail(this.icon, this.text);
+class _EmptyHangoutsState extends StatelessWidget {
+  final VoidCallback onCreateTap;
+  const _EmptyHangoutsState({required this.onCreateTap});
 
   @override
-  Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: AppTheme.mutedForeground),
-          const SizedBox(width: 3),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppTheme.mutedForeground,
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('🗓️', style: TextStyle(fontSize: 48)),
+            const SizedBox(height: 16),
+            const Text('No hangouts planned yet',
+                style:
+                    TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            const Text(
+              'Create a hangout and let everyone submit their preferences.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.mutedForeground),
             ),
-          ),
-        ],
-      );
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: onCreateTap,
+              icon: const Icon(Icons.add),
+              label: const Text('Create a Hangout'),
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.primary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
-

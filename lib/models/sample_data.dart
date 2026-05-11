@@ -34,23 +34,8 @@ final List<Member> sampleMembers = [
   ),
 ];
 
-// ── Groups ────────────────────────────────────────────────────
-final List<Group> sampleGroups = [
-  Group(
-    id: '1',
-    name: 'College Squad 🎓',
-    members: sampleMembers,
-    nextHangout: 'March 8, 2026',
-    imageUrl: imgGroup,
-  ),
-  Group(
-    id: '2',
-    name: 'Foodie Friends 🍕',
-    members: sampleMembers.sublist(0, 3),
-    nextHangout: 'March 12, 2026',
-    imageUrl: imgBrunch,
-  ),
-];
+// ── Groups (unused — real data comes from API now) ────────────
+final List<Group> sampleGroups = [];
 
 // ── Default single-day itinerary (optional fallback) ──────────
 final List<ItineraryStop> sampleItinerary = [

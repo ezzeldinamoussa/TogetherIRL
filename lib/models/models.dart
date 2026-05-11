@@ -6,20 +6,64 @@
 class Group {
   final String id;
   final String name;
-  final List<Member> members;
-  final String? nextHangout;
-  final String? imageUrl;
+  final String emoji;
+  final String? description;
+  final String? myRole;
+  final List<GroupMember> members;
+  final String? createdAt;
 
   const Group({
     required this.id,
     required this.name,
-    required this.members,
-    this.nextHangout,
-    this.imageUrl,
+    this.emoji = '🎉',
+    this.description,
+    this.myRole,
+    this.members = const [],
+    this.createdAt,
   });
+
+  factory Group.fromJson(Map<String, dynamic> json) {
+    final rawMembers = json['members'] as List? ?? [];
+    return Group(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      emoji: json['emoji'] as String? ?? '🎉',
+      description: json['description'] as String?,
+      myRole: json['my_role'] as String?,
+      members: rawMembers
+          .map((m) => GroupMember.fromJson(m as Map<String, dynamic>))
+          .toList(),
+      createdAt: json['created_at'] as String?,
+    );
+  }
 }
 
-// ── Member ───────────────────────────────────────────────────
+// ── GroupMember ──────────────────────────────────────────────
+class GroupMember {
+  final String userId;
+  final String displayName;
+  final String? avatarUrl;
+  final String role;
+
+  const GroupMember({
+    required this.userId,
+    required this.displayName,
+    this.avatarUrl,
+    this.role = 'member',
+  });
+
+  factory GroupMember.fromJson(Map<String, dynamic> json) {
+    final profile = json['profiles'] as Map<String, dynamic>? ?? {};
+    return GroupMember(
+      userId: json['user_id'] as String? ?? '',
+      displayName: profile['display_name'] as String? ?? 'Member',
+      avatarUrl: profile['avatar_url'] as String?,
+      role: json['role'] as String? ?? 'member',
+    );
+  }
+}
+
+// ── Member (legacy — used by BillScreen) ─────────────────────
 class Member {
   final String id;
   final String name;

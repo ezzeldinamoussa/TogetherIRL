@@ -1,25 +1,27 @@
 // ─────────────────────────────────────────────────────────────
 // table_talk_screen.dart  –  TableTalk real-time voice mixer
+//
+// Concept: everyone at the table wears earbuds. This screen lets
+// you independently boost or lower each person's voice — like a
+// personal mixing board for a live conversation.  A Discord-style
+// per-user mute is included so you can cut a single voice entirely.
 // ─────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-enum _VoiceGroup { foreground, background }
-
+// ── Data model for a TableTalk participant ────────────────────
 class _Participant {
   final String name;
   final Color color;
-  double volume; // 0.0 – 1.5; updated proportionally when group slider moves
+  double volume;   // 0.0 – 1.5  (150 % max, like Discord's boost)
   bool muted;
-  _VoiceGroup group;
 
   _Participant({
     required this.name,
     required this.color,
     this.volume = 1.0,
     this.muted = false,
-    this.group = _VoiceGroup.background,
   });
 
   String get initials => name[0].toUpperCase();
@@ -32,8 +34,8 @@ class TableTalkScreen extends StatefulWidget {
 
   const TableTalkScreen({
     super.key,
-    this.groupName = 'College Squad',
-    this.venueName = 'The Corner Cafe',
+    this.groupName = 'Your Group',
+    this.venueName = 'Current Venue',
   });
 
   @override
@@ -42,22 +44,18 @@ class TableTalkScreen extends StatefulWidget {
 
 class _TableTalkScreenState extends State<TableTalkScreen>
     with TickerProviderStateMixin {
+  // ── Your own mic state ──────────────────────────────────────
   bool _selfMuted = false;
-  bool _hasLeft = false;
 
-  double _foregroundVolume = 1.0;
-  double _backgroundVolume = 0.5;
-  bool _foregroundMuted = false;
-  bool _backgroundMuted = false;
-
-  // All participants start in Background by default
+  // ── Participants (everyone else at the table) ───────────────
   final List<_Participant> _participants = [
-    _Participant(name: 'Alex', color: Color(0xFF3B82F6)),
-    _Participant(name: 'Jordan', color: Color(0xFF8B5CF6)),
-    _Participant(name: 'Sam', color: Color(0xFF22C55E)),
-    _Participant(name: 'Casey', color: Color(0xFFF97316)),
+    _Participant(name: 'Alex',   color: Color(0xFF3B82F6), volume: 1.0),
+    _Participant(name: 'Jordan', color: Color(0xFF8B5CF6), volume: 1.3),
+    _Participant(name: 'Sam',    color: Color(0xFF22C55E), volume: 0.6, muted: true),
+    _Participant(name: 'Casey',  color: Color(0xFFF97316), volume: 1.0),
   ];
 
+  // ── Animation controller for the "Live" pulse dot ──────────
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
 
@@ -79,131 +77,34 @@ class _TableTalkScreenState extends State<TableTalkScreen>
     super.dispose();
   }
 
+  // ── Helpers ─────────────────────────────────────────────────
   void _toggleMute(int index) =>
       setState(() => _participants[index].muted = !_participants[index].muted);
 
-  void _setIndividualVolume(int index, double v) =>
+  void _setVolume(int index, double v) =>
       setState(() => _participants[index].volume = v);
-
-  // When the group slider moves, scale all participants in that group proportionally
-  // so their individual sliders react visually.
-  void _setGroupVolume(bool isForeground, double newVol) {
-    final oldVol = isForeground ? _foregroundVolume : _backgroundVolume;
-    final targetGroup =
-        isForeground ? _VoiceGroup.foreground : _VoiceGroup.background;
-    setState(() {
-      if (isForeground) {
-        _foregroundVolume = newVol;
-      } else {
-        _backgroundVolume = newVol;
-      }
-      for (final p in _participants) {
-        if (p.group != targetGroup) continue;
-        if (oldVol < 0.001) {
-          // Was at zero — restore individuals to the new group value
-          p.volume = newVol.clamp(0.0, 1.5);
-        } else {
-          p.volume = (p.volume * newVol / oldVol).clamp(0.0, 1.5);
-        }
-      }
-    });
-  }
-
-  void _toggleGroupMute(bool isForeground) => setState(() {
-        if (isForeground) {
-          _foregroundMuted = !_foregroundMuted;
-        } else {
-          _backgroundMuted = !_backgroundMuted;
-        }
-      });
-
-  void _moveToForeground(int index) =>
-      setState(() => _participants[index].group = _VoiceGroup.foreground);
-
-  void _moveToBackground(int index) =>
-      setState(() => _participants[index].group = _VoiceGroup.background);
-
-  List<MapEntry<int, _Participant>> get _foregroundList => _participants
-      .asMap()
-      .entries
-      .where((e) => e.value.group == _VoiceGroup.foreground)
-      .toList();
-
-  List<MapEntry<int, _Participant>> get _backgroundList => _participants
-      .asMap()
-      .entries
-      .where((e) => e.value.group == _VoiceGroup.background)
-      .toList();
 
   // ── Build ────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    if (_hasLeft) return _buildLeftState(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
           _buildHeader(context),
-          Expanded(child: _buildBody()),
+          Expanded(child: _buildParticipantList()),
+          _buildSelfBar(context),
         ],
       ),
     );
   }
 
-  // ── Left state ───────────────────────────────────────────────
-  Widget _buildLeftState(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          _buildHeader(context, dimmed: true),
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.call_end,
-                      size: 56, color: AppTheme.mutedForeground),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'You left the session',
-                    style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Others are still connected.',
-                    style: TextStyle(
-                        fontSize: 14, color: AppTheme.mutedForeground),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: () => setState(() => _hasLeft = false),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 14),
-                    ),
-                    child: const Text('Rejoin Session'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Header — session info chip only, no title bar ────────────
-  Widget _buildHeader(BuildContext context, {bool dimmed = false}) {
+  // ── Header ───────────────────────────────────────────────────
+  Widget _buildHeader(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: dimmed
-              ? [Colors.grey.shade400, Colors.grey.shade600]
-              : const [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -212,329 +113,244 @@ class _TableTalkScreenState extends State<TableTalkScreen>
         top: MediaQuery.of(context).padding.top + 12,
         left: 16,
         right: 16,
-        bottom: 16,
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Left: session info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.groupName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.venueName,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.8),
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (!dimmed)
-                        AnimatedBuilder(
-                          animation: _pulseAnim,
-                          builder: (_, __) => Opacity(
-                            opacity: _pulseAnim.value,
-                            child: Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF4ADE80),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: Colors.grey,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      const SizedBox(width: 6),
-                      Text(
-                        dimmed
-                            ? 'Disconnected'
-                            : 'Live · ${_participants.length + 1} connected',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // Right: mic + leave controls
-            if (!dimmed) ...[
-              const SizedBox(width: 12),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-                    onTap: () => setState(() => _selfMuted = !_selfMuted),
-                    child: Container(
-                      padding: const EdgeInsets.all(9),
-                      decoration: BoxDecoration(
-                        color: _selfMuted
-                            ? Colors.red.withValues(alpha: 0.35)
-                            : Colors.white.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        _selfMuted ? Icons.mic_off : Icons.mic,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: () => _confirmLeave(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: const Text(
-                        'Leave',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Body ─────────────────────────────────────────────────────
-  Widget _buildBody() {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-      children: [
-        _buildGroupBox(isForeground: true),
-        const SizedBox(height: 16),
-        _buildGroupBox(isForeground: false),
-      ],
-    );
-  }
-
-  // ── Group box — header + slider + participant tiles inside ────
-  Widget _buildGroupBox({required bool isForeground}) {
-    final label = isForeground ? 'Foreground' : 'Background';
-    final subtitle = isForeground
-        ? 'People you want to hear clearly'
-        : 'Others at the table — lower volume by default';
-    final volume = isForeground ? _foregroundVolume : _backgroundVolume;
-    final groupMuted = isForeground ? _foregroundMuted : _backgroundMuted;
-    final participants = isForeground ? _foregroundList : _backgroundList;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: isForeground
-            ? AppTheme.primary.withValues(alpha: 0.04)
-            : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isForeground
-              ? AppTheme.primary.withValues(alpha: 0.25)
-              : AppTheme.border,
-        ),
+        bottom: 20,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Group header ──────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+          // Top row: back + title + overflow
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+              const Expanded(
+                child: Text(
+                  'TableTalk',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.more_horiz, color: Colors.white70),
+                onPressed: () {},
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Session info chip area
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                          Text(
-                            subtitle,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.mutedForeground,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Group mute button
-                    GestureDetector(
-                      onTap: () => _toggleGroupMute(isForeground),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: groupMuted
-                              ? AppTheme.destructive.withValues(alpha: 0.1)
-                              : const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              groupMuted
-                                  ? Icons.volume_off
-                                  : Icons.volume_up,
-                              size: 14,
-                              color: groupMuted
-                                  ? AppTheme.destructive
-                                  : AppTheme.mutedForeground,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              groupMuted ? 'Unmute' : 'Mute',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: groupMuted
-                                    ? AppTheme.destructive
-                                    : AppTheme.mutedForeground,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  widget.groupName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                // Group volume slider
+                const SizedBox(height: 2),
+                Text(
+                  widget.venueName,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Live indicator
                 Row(
                   children: [
-                    Expanded(
-                      child: Slider(
-                        value: groupMuted ? 0.0 : volume,
-                        min: 0.0,
-                        max: 1.5,
-                        divisions: 30,
-                        activeColor: AppTheme.primary,
-                        onChanged: groupMuted
-                            ? null
-                            : (v) => _setGroupVolume(isForeground, v),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 44,
-                      child: Text(
-                        groupMuted ? 'muted' : '${(volume * 100).round()}%',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: groupMuted
-                              ? AppTheme.destructive
-                              : const Color(0xFF0F172A),
+                    AnimatedBuilder(
+                      animation: _pulseAnim,
+                      builder: (_, __) => Opacity(
+                        opacity: _pulseAnim.value,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF4ADE80),
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Live · ${_participants.length + 1} connected',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
-
-          // ── Participant tiles inside the box ──────────────────
-          if (participants.isEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-              child: Text(
-                isForeground
-                    ? 'Tap "Foreground" on someone in the Background group'
-                    : 'Everyone is in the foreground',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.mutedForeground,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: Column(
-                children: participants
-                    .map(
-                      (e) => _ParticipantTile(
-                        key: ValueKey(e.value.name),
-                        participant: e.value,
-                        onMuteToggle: () => _toggleMute(e.key),
-                        onVolumeChanged: (v) =>
-                            _setIndividualVolume(e.key, v),
-                        onGroupToggle: isForeground
-                            ? () => _moveToBackground(e.key)
-                            : () => _moveToForeground(e.key),
-                        isInForeground: isForeground,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
         ],
       ),
     );
   }
 
-  // ── Leave confirmation ───────────────────────────────────────
-  Future<void> _confirmLeave(BuildContext context) async {
+  // ── Participant list ─────────────────────────────────────────
+  Widget _buildParticipantList() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      children: [
+        const Text(
+          'Adjust voices',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Drag sliders to boost or reduce each person\'s voice',
+          style: TextStyle(fontSize: 12, color: AppTheme.mutedForeground),
+        ),
+        const SizedBox(height: 16),
+        ..._participants.asMap().entries.map(
+          (e) => _ParticipantTile(
+            participant: e.value,
+            onMuteToggle: () => _toggleMute(e.key),
+            onVolumeChanged: (v) => _setVolume(e.key, v),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Your own bottom bar ──────────────────────────────────────
+  Widget _buildSelfBar(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppTheme.border)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 12,
+        bottom: MediaQuery.of(context).padding.bottom + 12,
+      ),
+      child: Row(
+        children: [
+          // You avatar
+          Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF59E0B),
+              shape: BoxShape.circle,
+            ),
+            child: const Center(
+              child: Text(
+                'Y',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'You',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                Text(
+                  _selfMuted ? 'mic off' : 'mic on',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _selfMuted
+                        ? AppTheme.destructive
+                        : AppTheme.green,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Mute self
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _selfMuted = !_selfMuted),
+            icon: Icon(
+              _selfMuted ? Icons.mic_off : Icons.mic,
+              size: 16,
+              color: _selfMuted ? AppTheme.destructive : null,
+            ),
+            label: Text(_selfMuted ? 'Unmute' : 'Mute'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor:
+                  _selfMuted ? AppTheme.destructive : const Color(0xFF0F172A),
+              side: BorderSide(
+                color: _selfMuted ? AppTheme.destructive : AppTheme.border,
+              ),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // End session
+          ElevatedButton(
+            onPressed: () => _confirmEnd(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.destructive,
+              foregroundColor: Colors.white,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            ),
+            child: const Text('End'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── End session confirmation ─────────────────────────────────
+  Future<void> _confirmEnd(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Leave session?'),
+        title: const Text('End TableTalk session?'),
         content: const Text(
-            'Others will stay connected. You can rejoin anytime.'),
+          'Everyone will be disconnected. You can start a new session anytime.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -546,221 +362,153 @@ class _TableTalkScreenState extends State<TableTalkScreen>
               backgroundColor: AppTheme.destructive,
               foregroundColor: Colors.white,
             ),
-            child: const Text('Leave'),
+            child: const Text('End session'),
           ),
         ],
       ),
     );
-    if (confirmed == true && mounted) {
-      setState(() => _hasLeft = true);
+    if (confirmed == true && context.mounted) {
+      Navigator.of(context).pop();
     }
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-// _ParticipantTile — collapsed by default; expands on chevron
-// tap to reveal the individual fine-tune slider.
+// _ParticipantTile  –  one row in the voice mixer
 // ─────────────────────────────────────────────────────────────
-class _ParticipantTile extends StatefulWidget {
+class _ParticipantTile extends StatelessWidget {
   final _Participant participant;
   final VoidCallback onMuteToggle;
   final ValueChanged<double> onVolumeChanged;
-  final VoidCallback onGroupToggle;
-  final bool isInForeground;
 
   const _ParticipantTile({
-    super.key,
     required this.participant,
     required this.onMuteToggle,
     required this.onVolumeChanged,
-    required this.onGroupToggle,
-    required this.isInForeground,
   });
 
   @override
-  State<_ParticipantTile> createState() => _ParticipantTileState();
-}
-
-class _ParticipantTileState extends State<_ParticipantTile> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final p = widget.participant;
-    final isMuted = p.muted;
-    final pct = '${(p.volume * 100).round()}%';
+    final isMuted = participant.muted;
+    final pct = '${(participant.volume * 100).round()}%';
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Column(
-          children: [
-            // ── Collapsed row ─────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                children: [
-                  // Avatar
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: isMuted
-                          ? p.color.withValues(alpha: 0.35)
-                          : p.color,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        p.initials,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              // Avatar
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isMuted
+                      ? participant.color.withValues(alpha: 0.35)
+                      : participant.color,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    participant.initials,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      p.name,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: isMuted
-                            ? AppTheme.mutedForeground
-                            : const Color(0xFF0F172A),
-                      ),
-                    ),
-                  ),
-                  // Group toggle
-                  GestureDetector(
-                    onTap: widget.onGroupToggle,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: widget.isInForeground
-                            ? Colors.grey.shade100
-                            : AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            widget.isInForeground
-                                ? Icons.arrow_downward
-                                : Icons.arrow_upward,
-                            size: 11,
-                            color: widget.isInForeground
-                                ? AppTheme.mutedForeground
-                                : AppTheme.primary,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            widget.isInForeground
-                                ? 'Background'
-                                : 'Foreground',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: widget.isInForeground
-                                  ? AppTheme.mutedForeground
-                                  : AppTheme.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  // Per-person mute
-                  GestureDetector(
-                    onTap: widget.onMuteToggle,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: isMuted
-                            ? AppTheme.destructive.withValues(alpha: 0.1)
-                            : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        isMuted ? Icons.volume_off : Icons.volume_up,
-                        size: 16,
-                        color: isMuted
-                            ? AppTheme.destructive
-                            : AppTheme.mutedForeground,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  // Expand/collapse fine-tune
-                  GestureDetector(
-                    onTap: () => setState(() => _expanded = !_expanded),
-                    child: Icon(
-                      _expanded
-                          ? Icons.expand_less
-                          : Icons.expand_more,
-                      size: 20,
-                      color: AppTheme.mutedForeground,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Fine-tune slider (expanded only) ──────────────
-            if (_expanded)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: Row(
-                  children: [
-                    Text(
-                      'Fine-tune',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.mutedForeground,
-                      ),
-                    ),
-                    Expanded(
-                      child: Slider(
-                        value: isMuted ? 0.0 : p.volume,
-                        min: 0.0,
-                        max: 1.5,
-                        divisions: 30,
-                        activeColor: AppTheme.primary,
-                        onChanged: isMuted ? null : widget.onVolumeChanged,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 38,
-                      child: Text(
-                        isMuted ? 'muted' : pct,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: isMuted
-                              ? AppTheme.destructive
-                              : const Color(0xFF0F172A),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ),
-          ],
-        ),
+              const SizedBox(width: 12),
+
+              // Name
+              Expanded(
+                child: Text(
+                  participant.name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: isMuted ? AppTheme.mutedForeground : const Color(0xFF0F172A),
+                    decoration: isMuted ? TextDecoration.none : null,
+                  ),
+                ),
+              ),
+
+              // Volume percentage label
+              SizedBox(
+                width: 42,
+                child: Text(
+                  isMuted ? 'muted' : pct,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isMuted
+                        ? AppTheme.destructive
+                        : _volumeColor(participant.volume),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Mute toggle button
+              GestureDetector(
+                onTap: onMuteToggle,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: isMuted
+                        ? AppTheme.destructive.withValues(alpha: 0.1)
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    isMuted ? Icons.volume_off : Icons.volume_up,
+                    size: 18,
+                    color: isMuted ? AppTheme.destructive : AppTheme.mutedForeground,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Volume slider
+          Padding(
+            padding: const EdgeInsets.only(left: 52, right: 0, top: 4),
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: isMuted
+                    ? AppTheme.mutedForeground.withValues(alpha: 0.3)
+                    : _volumeColor(participant.volume),
+                inactiveTrackColor: AppTheme.border,
+                thumbColor: isMuted
+                    ? AppTheme.mutedForeground.withValues(alpha: 0.4)
+                    : _volumeColor(participant.volume),
+                overlayColor:
+                    _volumeColor(participant.volume).withValues(alpha: 0.15),
+                trackHeight: 4,
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 7),
+              ),
+              child: Slider(
+                value: isMuted ? 0.0 : participant.volume,
+                min: 0.0,
+                max: 1.5,
+                divisions: 30,
+                onChanged: isMuted ? null : onVolumeChanged,
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  // Color shifts green→yellow→red as volume increases past 100 %
+  Color _volumeColor(double v) {
+    if (v <= 1.0) return AppTheme.green;
+    if (v <= 1.25) return const Color(0xFFF59E0B); // amber
+    return AppTheme.destructive;
   }
 }
