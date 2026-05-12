@@ -10,6 +10,12 @@ TableTalk currently uses:
 - FastAPI signaling backend
 - LiveKit for real-time audio communication
 
+## Recommended
+Create a `.env.example` file:
+
+LIVEKIT_URL=replace_me
+LIVEKIT_API_KEY=replace_me
+LIVEKIT_API_SECRET=replace_me
 ---
 
 # 1. Clone and Checkout Correct Branch
@@ -280,6 +286,17 @@ Expected:
 
 ---
 
+### Test Nudge
+- Join from both emulators
+- Mute one participant
+- Press the Nudge button on the muted participant card
+
+Expected:
+- target user receives vibration
+- snackbar notification appears:
+  "<username> wants to talk to you"
+
+---
 # 11. Current Feature Status
 
 ## Working
@@ -290,7 +307,8 @@ Expected:
 ✅ join/leave updates  
 ✅ foreground/background grouping UI  
 ✅ mute/unmute logic  
-✅ two-user local testing  
+✅ nudge notifications (socket event + vibration/snackbar)
+✅ two-user local testing 
 
 ---
 

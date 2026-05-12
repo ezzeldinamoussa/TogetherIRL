@@ -25,6 +25,8 @@ dependencies:
   livekit_client: ^2.7.0
   permission_handler: ^12.0.1
   http: ^1.6.0
+  socket_io_client: ^3.1.4
+  vibration: ^3.1.8
 
 dev_dependencies:
   flutter_test:

@@ -5,6 +5,8 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../services/table_talk_audio_service.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:vibration/vibration.dart';
 
 enum _VoiceGroup { foreground, background }
 
@@ -51,6 +53,7 @@ class _TableTalkScreenState extends State<TableTalkScreen>
   bool _selfMuted = false;
   bool _hasLeft = false;
   String? _username;
+  IO.Socket? _socket;
 
   double _foregroundVolume = 1.0;
   double _backgroundVolume = 0.5;
@@ -74,28 +77,91 @@ class _TableTalkScreenState extends State<TableTalkScreen>
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
 
-  @override
-  void initState() {
-    super.initState();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+@override
+void initState() {
+  super.initState();
+
+  _pulseCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  _pulseAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
+    CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+  );
+
+  // Starts listening for nudge notifications from the backend.
+  _setupNudgeSocket();
+}
+
+@override
+void dispose() {
+  // Remove the room listener before disconnecting so the screen
+  // does not try to update after it has already been closed.
+  _audioService.room?.removeListener(_roomListener);
+
+  // Stop listening to nudge socket events when leaving this screen.
+  _socket?.off('receive_nudge');
+  _socket?.off('nudge_sent');
+  _socket?.off('nudge_failed');
+  _socket?.disconnect();
+
+  _pulseCtrl.dispose();
+  _audioService.disconnect();
+  super.dispose();
+}
+
+void _setupNudgeSocket() {
+  _socket = IO.io(
+    'http://10.0.2.2:8001',
+    IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .disableAutoConnect()
+        .build(),
+  );
+
+  _socket!.connect();
+
+  _socket!.onConnect((_) {
+    debugPrint('Nudge socket connected');
+  });
+
+  _socket!.on('receive_nudge', (data) async {
+    final hasVibrator = await Vibration.hasVibrator();
+
+    if (hasVibrator == true) {
+      Vibration.vibrate(duration: 300);
+    }
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${data['fromUser']} wants to talk to you'),
+      ),
     );
-  }
+  });
 
-  @override
-  void dispose() {
-    // Remove the room listener before disconnecting so the screen
-    // does not try to update after it has already been closed.
-    _audioService.room?.removeListener(_roomListener);
+  _socket!.on('nudge_sent', (data) {
+    if (!mounted) return;
 
-    _pulseCtrl.dispose();
-    _audioService.disconnect();
-    super.dispose();
-  }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(data['message'] ?? 'Nudge sent.'),
+      ),
+    );
+  });
+
+  _socket!.on('nudge_failed', (data) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(data['message'] ?? 'Nudge failed.'),
+      ),
+    );
+  });
+}
 
 Future<String?> _askForUsername() async {
   final controller = TextEditingController(text: _username ?? '');
@@ -171,10 +237,14 @@ Future<String?> _askForUsername() async {
 
   try {
     await _audioService.connect(
-      username: _username!,
-      roomName: 'tabletalk-room',
-    );
+    username: _username!,
+    roomName: 'tabletalk-room',
+  );
 
+    _socket?.emit('register', {
+    'username': _username,
+    'room': 'tabletalk-room',
+  });
     // Pull the current LiveKit participant list once after joining.
     _syncParticipantsFromLiveKit();
 
@@ -777,6 +847,7 @@ void _moveToBackground(int index) {
                         onGroupToggle: isForeground
                             ? () => _moveToBackground(e.key)
                             : () => _moveToForeground(e.key),
+                        onNudge: () => _sendNudge(e.value.name),
                         isInForeground: isForeground,
                         enabled: _isConnectedToAudio,
                       ),
@@ -789,43 +860,53 @@ void _moveToBackground(int index) {
     );
   }
 
-  // ── Leave confirmation ───────────────────────────────────────
-  Future<void> _confirmLeave(BuildContext context) async {
-    if (!_isConnectedToAudio) {
-      await _connectAudio();
-      return;
-    }
+// ── Leave confirmation ───────────────────────────────────────
+Future<void> _confirmLeave(BuildContext context) async {
+  if (!_isConnectedToAudio) {
+    await _connectAudio();
+    return;
+  }
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Leave session?'),
-        content: const Text(
-            'Others will stay connected. You can rejoin anytime.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.destructive,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Leave'),
-          ),
-        ],
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Leave session?'),
+      content: const Text(
+        'Others will stay connected. You can rejoin anytime.',
       ),
-    );
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.destructive,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Leave'),
+        ),
+      ],
+    ),
+  );
 
-    if (confirmed == true && mounted) {
-      await _disconnectAudio();
-      setState(() => _hasLeft = true);
-    }
+  if (confirmed == true && mounted) {
+    await _disconnectAudio();
+    setState(() => _hasLeft = true);
   }
 }
 
+void _sendNudge(String toUser) {
+  if (_username == null) return;
+
+  _socket?.emit('send_nudge', {
+    'room': 'tabletalk-room',
+    'fromUser': _username,
+    'toUser': toUser,
+  });
+}
+    }
 // ─────────────────────────────────────────────────────────────
 // _ParticipantTile — collapsed by default; expands on chevron
 // tap to reveal the individual fine-tune slider.
@@ -835,6 +916,7 @@ class _ParticipantTile extends StatefulWidget {
   final VoidCallback onMuteToggle;
   final ValueChanged<double> onVolumeChanged;
   final VoidCallback onGroupToggle;
+  final VoidCallback onNudge;
   final bool isInForeground;
   final bool enabled;
 
@@ -844,6 +926,7 @@ class _ParticipantTile extends StatefulWidget {
     required this.onMuteToggle,
     required this.onVolumeChanged,
     required this.onGroupToggle,
+    required this.onNudge,
     required this.isInForeground,
     required this.enabled,
   });
@@ -873,7 +956,6 @@ class _ParticipantTileState extends State<_ParticipantTile> {
           ),
           child: Column(
             children: [
-              // ── Collapsed row ─────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                 child: Row(
@@ -899,7 +981,9 @@ class _ParticipantTileState extends State<_ParticipantTile> {
                         ),
                       ),
                     ),
+
                     const SizedBox(width: 10),
+
                     Expanded(
                       child: Text(
                         p.name,
@@ -912,12 +996,15 @@ class _ParticipantTileState extends State<_ParticipantTile> {
                         ),
                       ),
                     ),
+
                     // Group toggle
                     GestureDetector(
                       onTap: widget.enabled ? widget.onGroupToggle : null,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 5),
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: widget.isInForeground
                               ? Colors.grey.shade100
@@ -953,7 +1040,29 @@ class _ParticipantTileState extends State<_ParticipantTile> {
                         ),
                       ),
                     ),
+
                     const SizedBox(width: 6),
+
+                    // Nudge button
+                    GestureDetector(
+                      onTap: widget.enabled ? widget.onNudge : null,
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.notifications_active_outlined,
+                          size: 16,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 6),
+
                     // Per-person mute
                     GestureDetector(
                       onTap: widget.enabled ? widget.onMuteToggle : null,
@@ -975,8 +1084,10 @@ class _ParticipantTileState extends State<_ParticipantTile> {
                         ),
                       ),
                     ),
+
                     const SizedBox(width: 6),
-                    // Expand/collapse fine-tune
+
+                    // Expand/collapse
                     GestureDetector(
                       onTap: () => setState(() => _expanded = !_expanded),
                       child: Icon(
@@ -989,7 +1100,7 @@ class _ParticipantTileState extends State<_ParticipantTile> {
                 ),
               ),
 
-              // ── Fine-tune slider (expanded only) ──────────────
+              // Fine-tune slider
               if (_expanded)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),

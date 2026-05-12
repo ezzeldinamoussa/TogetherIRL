@@ -1,6 +1,7 @@
 fastapi
-uvicorn 
+uvicorn
 python-socketio
 aiohttp
 livekit-api
 python-dotenv
+pydantic
