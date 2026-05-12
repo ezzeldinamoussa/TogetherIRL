@@ -39,7 +39,7 @@ class TableTalkAudioService {
     }
 
     final response = await http.post(
-      Uri.parse('http://10.0.2.2:8001/token'),
+      Uri.parse('https://togetherirl.onrender.com/token'),
       headers: {
         'Content-Type': 'application/json',
       },
