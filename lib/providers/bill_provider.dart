@@ -38,4 +38,11 @@ class BillProvider extends ChangeNotifier {
   Future<void> saveBill(String billId, Map<String, dynamic> data) async {
     await ApiService.instance.updateBill(billId, data);
   }
+
+  void removeBill(String groupId, String billId) {
+    _byGroup[groupId] = (_byGroup[groupId] ?? [])
+        .where((b) => b['id'] != billId)
+        .toList();
+    notifyListeners();
+  }
 }

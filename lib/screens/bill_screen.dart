@@ -43,6 +43,15 @@ class _BillScreenState extends State<BillScreen> {
     );
   }
 
+  double _myOwed(List<Map<String, dynamic>> bills) {
+    double total = 0;
+    for (final b in bills) {
+      final share = b['my_share'];
+      if (share != null) total += (share as num).toDouble();
+    }
+    return total;
+  }
+
   @override
   Widget build(BuildContext context) {
     final groups = context.watch<GroupProvider>().groups;
@@ -73,22 +82,74 @@ class _BillScreenState extends State<BillScreen> {
         ? billProvider.billsFor(_selectedGroup!.id)
         : <Map<String, dynamic>>[];
 
+    final myOwed = _myOwed(bills);
+
     return Scaffold(
       body: Column(
         children: [
-          // ── Group selector ───────────────────────────────────
+          // ── Gradient header ───────────────────────────────────
           Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(
+                20, MediaQuery.of(context).padding.top + 16, 20, 20),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF0EA5E9)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Bills for',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.mutedForeground)),
-                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Bills',
+                              style: TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white)),
+                          SizedBox(height: 4),
+                          Text('Split expenses fairly',
+                              style: TextStyle(
+                                  fontSize: 14, color: Colors.white70)),
+                        ],
+                      ),
+                    ),
+                    if (bills.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.attach_money_rounded,
+                                size: 14, color: Color(0xFF0D9488)),
+                            const SizedBox(width: 2),
+                            Text(
+                              'You owe: \$${myOwed.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0D9488),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -104,8 +165,8 @@ class _BillScreenState extends State<BillScreen> {
                                 horizontal: 14, vertical: 8),
                             decoration: BoxDecoration(
                               color: selected
-                                  ? AppTheme.primary
-                                  : AppTheme.secondary,
+                                  ? Colors.white
+                                  : Colors.white.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -120,8 +181,8 @@ class _BillScreenState extends State<BillScreen> {
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
                                     color: selected
-                                        ? Colors.white
-                                        : const Color(0xFF0F172A),
+                                        ? const Color(0xFF4F46E5)
+                                        : Colors.white,
                                   ),
                                 ),
                               ],
@@ -135,7 +196,6 @@ class _BillScreenState extends State<BillScreen> {
               ],
             ),
           ),
-          const Divider(height: 1),
 
           // ── Bills list ───────────────────────────────────────
           Expanded(
@@ -165,10 +225,11 @@ class _BillScreenState extends State<BillScreen> {
       floatingActionButton: _selectedGroup != null
           ? FloatingActionButton.extended(
               onPressed: _showCreateBill,
-              icon: const Icon(Icons.add),
-              label: const Text('New Bill'),
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFF4F46E5),
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text('New Bill',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w700)),
             )
           : null,
     );
@@ -176,14 +237,67 @@ class _BillScreenState extends State<BillScreen> {
 }
 
 // ── Bill summary card ──────────────────────────────────────────
-class _BillCard extends StatelessWidget {
+class _BillCard extends StatefulWidget {
   final Map<String, dynamic> bill;
   final Group group;
 
   const _BillCard({required this.bill, required this.group});
 
   @override
+  State<_BillCard> createState() => _BillCardState();
+}
+
+class _BillCardState extends State<_BillCard> {
+  bool _deleting = false;
+
+  Future<void> _confirmDelete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Bill',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+        content: Text(
+            'Delete "${widget.bill['title'] ?? 'this bill'}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFEF4444)),
+            child: const Text('Delete',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    setState(() => _deleting = true);
+    try {
+      await ApiService.instance.deleteBill(widget.bill['id'] as String);
+      if (mounted) {
+        context.read<BillProvider>().removeBill(
+            widget.group.id, widget.bill['id'] as String);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+        setState(() => _deleting = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final bill = widget.bill;
+    final grandTotal = (bill['grand_total'] as num?)?.toDouble();
+    final myShare = (bill['my_share'] as num?)?.toDouble();
+    final isSettled = bill['settled'] == true;
+
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
@@ -196,25 +310,26 @@ class _BillCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Row(
           children: [
             Container(
-              width: 48, height: 48,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
-                color: AppTheme.green.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFF0D9488).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: const Center(
-                child: Text('🧾', style: TextStyle(fontSize: 22)),
+                child: Icon(Icons.receipt_long_rounded,
+                    color: Color(0xFF0D9488), size: 26),
               ),
             ),
             const SizedBox(width: 14),
@@ -225,18 +340,89 @@ class _BillCard extends StatelessWidget {
                   Text(
                     bill['title'] ?? 'Bill',
                     style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w700),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A)),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    'Tip: ${bill['tip_percent']}%',
-                    style: const TextStyle(
-                        fontSize: 12, color: AppTheme.mutedForeground),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isSettled
+                              ? AppTheme.green.withOpacity(0.1)
+                              : const Color(0xFFF59E0B).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isSettled ? 'Settled' : 'Pending',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: isSettled
+                                ? AppTheme.green
+                                : const Color(0xFFF59E0B),
+                          ),
+                        ),
+                      ),
+                      if (myShare != null && myShare > 0) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF4F46E5).withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'You: \$${myShare.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF4F46E5),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: AppTheme.mutedForeground),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (grandTotal != null)
+                  Text(
+                    '\$${grandTotal.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                const SizedBox(height: 6),
+                _deleting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : GestureDetector(
+                        onTap: _confirmDelete,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.delete_outline_rounded,
+                              color: Color(0xFFEF4444), size: 16),
+                        ),
+                      ),
+              ],
+            ),
           ],
         ),
       ),

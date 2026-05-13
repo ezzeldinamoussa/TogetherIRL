@@ -74,7 +74,6 @@ class GroupsController {
   Future<Response> _getMyGroups(Request req) async {
     final userId = req.userId;
     try {
-      // Get memberships with embedded group data
       final memberships = await _db.select(
         'group_members',
         filters: {'user_id': 'eq.$userId', 'status': 'eq.active'},
@@ -83,12 +82,56 @@ class GroupsController {
 
       final groups = memberships.map((row) {
         final group = row['groups'] as Map<String, dynamic>;
-        return {
+        return Map<String, dynamic>.from({
           ...group,
           'my_role': row['role'],
           'joined_at': row['joined_at'],
-        };
+          'members': <dynamic>[],
+        });
       }).toList();
+
+      // Fetch all members for all groups in one query
+      if (groups.isNotEmpty) {
+        final groupIds = groups.map((g) => g['id'] as String).join(',');
+
+        // Fetch memberships without profiles join (user_id → auth.users, not profiles)
+        final allMembers = await _db.select(
+          'group_members',
+          filters: {'group_id': 'in.($groupIds)', 'status': 'eq.active'},
+          columns: 'group_id,user_id,role',
+        );
+
+        // Fetch profiles separately for all member user IDs
+        final userIds = allMembers
+            .map((m) => m['user_id'] as String)
+            .toSet()
+            .toList();
+
+        Map<String, Map<String, dynamic>> profilesById = {};
+        if (userIds.isNotEmpty) {
+          final profiles = await _db.select(
+            'profiles',
+            filters: {'id': 'in.(${userIds.join(',')})'},
+            columns: 'id,display_name,avatar_url',
+          );
+          for (final p in profiles) {
+            profilesById[p['id'] as String] = p;
+          }
+        }
+
+        // Merge profiles into members, then assign to each group
+        final enrichedMembers = allMembers.map((m) {
+          final uid = m['user_id'] as String;
+          return {...m, 'profiles': profilesById[uid] ?? {}};
+        }).toList();
+
+        for (final group in groups) {
+          final gId = group['id'] as String;
+          group['members'] = enrichedMembers
+              .where((m) => m['group_id'] == gId)
+              .toList();
+        }
+      }
 
       return _ok(groups);
     } on SupabaseException catch (e) {

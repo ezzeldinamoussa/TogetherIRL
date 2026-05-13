@@ -171,7 +171,86 @@ class BillsController {
         filters: {'group_id': 'eq.$groupId', 'order': 'created_at.desc'},
         columns: 'id,title,tip_percent,created_at,created_by',
       );
-      return _ok(bills);
+
+      if (bills.isEmpty) return _ok([]);
+
+      // Member count for equal-split fallback
+      final groupMembers = await _db.select(
+        'group_members',
+        filters: {'group_id': 'eq.$groupId', 'status': 'eq.active'},
+        columns: 'user_id',
+      );
+      final memberCount = groupMembers.isNotEmpty ? groupMembers.length : 1;
+
+      final billIds = bills.map((b) => b['id'] as String).toList();
+
+      // All items for these bills
+      final allItems = await _db.select(
+        'bill_items',
+        filters: {'bill_id': 'in.(${billIds.join(',')})'},
+        columns: 'id,bill_id,price',
+      );
+
+      // All assignments for those items
+      final itemIds = allItems.map((i) => i['id'] as String).toList();
+      List<Map<String, dynamic>> allAssignments = [];
+      if (itemIds.isNotEmpty) {
+        allAssignments = await _db.select(
+          'bill_assignments',
+          filters: {'bill_item_id': 'in.(${itemIds.join(',')})'},
+          columns: 'bill_item_id,user_id',
+        );
+      }
+
+      // Compute grand_total and my_share per bill
+      final result = bills.map((bill) {
+        final billId = bill['id'] as String;
+        final tipPercent = (bill['tip_percent'] as num).toDouble();
+
+        final items = allItems.where((i) => i['bill_id'] == billId).toList();
+        final subtotal = items.fold<double>(
+            0, (s, i) => s + (i['price'] as num).toDouble());
+        final tipAmount = subtotal * tipPercent / 100;
+        final grandTotal = subtotal + tipAmount;
+
+        // Determine if this bill has ANY assignments at all
+        final billItemIds = items.map((i) => i['id'] as String).toSet();
+        final billAssignments = allAssignments
+            .where((a) => billItemIds.contains(a['bill_item_id'] as String))
+            .toList();
+        final hasAnyAssignments = billAssignments.isNotEmpty;
+
+        double myShare;
+        if (!hasAnyAssignments) {
+          // No assignments — split equally among all members
+          myShare = double.parse((grandTotal / memberCount).toStringAsFixed(2));
+        } else {
+          // Use specific item assignments
+          double myFoodShare = 0;
+          for (final item in items) {
+            final itemId = item['id'] as String;
+            final assigned = billAssignments
+                .where((a) => a['bill_item_id'] == itemId)
+                .toList();
+            if (assigned.isEmpty) continue;
+            final isAssigned = assigned.any((a) => a['user_id'] == userId);
+            if (isAssigned) {
+              myFoodShare += (item['price'] as num).toDouble() / assigned.length;
+            }
+          }
+          final myTip = subtotal > 0 ? myFoodShare / subtotal * tipAmount : 0;
+          myShare = double.parse((myFoodShare + myTip).toStringAsFixed(2));
+        }
+
+        return {
+          ...bill,
+          'grand_total': double.parse(grandTotal.toStringAsFixed(2)),
+          'my_share': myShare,
+          'item_count': items.length,
+        };
+      }).toList();
+
+      return _ok(result);
     } on SupabaseException catch (e) {
       return _serverError(e.body);
     }
@@ -352,9 +431,8 @@ class BillsController {
         return _forbidden('Only the bill creator can delete it');
       }
 
-      await _db.update(
+      await _db.delete(
         'hangout_bills',
-        {'id': billId},
         filters: {'id': 'eq.$billId'},
       );
 

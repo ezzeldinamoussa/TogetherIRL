@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/api_service.dart';
 
 class InviteProvider extends ChangeNotifier {
   List<Map<String, dynamic>> pendingInvites = [];
   bool loading = false;
+  RealtimeChannel? _channel;
 
   int get pendingCount => pendingInvites.length;
 
@@ -20,6 +22,29 @@ class InviteProvider extends ChangeNotifier {
     }
   }
 
+  void subscribeRealtime(String userId) {
+    _channel?.unsubscribe();
+    _channel = Supabase.instance.client
+        .channel('invite_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'group_invites',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'invited_user_id',
+            value: userId,
+          ),
+          callback: (_) => loadPendingInvites(),
+        )
+        .subscribe();
+  }
+
+  void unsubscribeRealtime() {
+    _channel?.unsubscribe();
+    _channel = null;
+  }
+
   Future<bool> respond(String inviteId, bool accept) async {
     try {
       await ApiService.instance.respondToInvite(inviteId, accept);
@@ -29,5 +54,11 @@ class InviteProvider extends ChangeNotifier {
     } catch (_) {
       return false;
     }
+  }
+
+  @override
+  void dispose() {
+    unsubscribeRealtime();
+    super.dispose();
   }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
@@ -6,7 +7,8 @@ import '../providers/hangout_provider.dart';
 import '../theme.dart';
 
 class PlannerScreen extends StatefulWidget {
-  const PlannerScreen({super.key});
+  final ValueNotifier<Group?>? groupTrigger;
+  const PlannerScreen({super.key, this.groupTrigger});
 
   @override
   State<PlannerScreen> createState() => _PlannerScreenState();
@@ -14,6 +16,29 @@ class PlannerScreen extends StatefulWidget {
 
 class _PlannerScreenState extends State<PlannerScreen> {
   Group? _selectedGroup;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.groupTrigger?.addListener(_onGroupTrigger);
+  }
+
+  @override
+  void dispose() {
+    widget.groupTrigger?.removeListener(_onGroupTrigger);
+    super.dispose();
+  }
+
+  void _onGroupTrigger() {
+    final group = widget.groupTrigger?.value;
+    if (group == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _selectGroup(group);
+      _showCreateHangout();
+      widget.groupTrigger!.value = null;
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -68,19 +93,85 @@ class _PlannerScreenState extends State<PlannerScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Group selector ─────────────────────────────────────
+          // ── Gradient header ────────────────────────────────────
           Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(
+                20, MediaQuery.of(context).padding.top + 16, 20, 20),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF0EA5E9)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Planning for',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.mutedForeground)),
-                const SizedBox(height: 8),
+                // Title row with Today button
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Planner',
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Plan your next hangout',
+                            style: TextStyle(fontSize: 14, color: Colors.white70),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Today pill button
+                    GestureDetector(
+                      onTap: () {
+                        // Scroll to today's hangouts by reloading
+                        if (_selectedGroup != null) {
+                          _loadHangouts(_selectedGroup!.id);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                              color: Colors.white.withOpacity(0.35)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.today_rounded,
+                                color: Colors.white, size: 14),
+                            SizedBox(width: 5),
+                            Text(
+                              'Today',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // ── Group selector pills ──────────────────────────
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -96,8 +187,8 @@ class _PlannerScreenState extends State<PlannerScreen> {
                                 horizontal: 14, vertical: 8),
                             decoration: BoxDecoration(
                               color: selected
-                                  ? AppTheme.primary
-                                  : AppTheme.secondary,
+                                  ? Colors.white
+                                  : Colors.white.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -112,8 +203,8 @@ class _PlannerScreenState extends State<PlannerScreen> {
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
                                     color: selected
-                                        ? Colors.white
-                                        : const Color(0xFF0F172A),
+                                        ? const Color(0xFF4F46E5)
+                                        : Colors.white,
                                   ),
                                 ),
                               ],
@@ -127,7 +218,6 @@ class _PlannerScreenState extends State<PlannerScreen> {
               ],
             ),
           ),
-          const Divider(height: 1),
 
           // ── Hangout list ───────────────────────────────────────
           Expanded(
@@ -157,10 +247,11 @@ class _PlannerScreenState extends State<PlannerScreen> {
       floatingActionButton: _selectedGroup != null
           ? FloatingActionButton.extended(
               onPressed: _showCreateHangout,
-              icon: const Icon(Icons.add),
-              label: const Text('New Hangout'),
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFF4F46E5),
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text('New Hangout',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w700)),
             )
           : null,
     );
@@ -186,11 +277,21 @@ class _HangoutCard extends StatelessWidget {
 
   String get _statusLabel {
     switch (hangout['status']) {
-      case 'collecting_preferences': return 'Collecting responses';
+      case 'collecting_preferences': return 'Planning';
       case 'planning': return 'Planning';
       case 'confirmed': return 'Confirmed';
-      case 'completed': return 'Completed';
+      case 'completed': return 'Past';
       default: return hangout['status'] ?? '';
+    }
+  }
+
+  IconData get _statusIcon {
+    switch (hangout['status']) {
+      case 'collecting_preferences': return Icons.hourglass_top_rounded;
+      case 'planning': return Icons.edit_note_rounded;
+      case 'confirmed': return Icons.check_circle_rounded;
+      case 'completed': return Icons.star_rounded;
+      default: return Icons.circle_outlined;
     }
   }
 
@@ -207,79 +308,200 @@ class _HangoutCard extends StatelessWidget {
         ),
       ),
       child: Container(
-        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    hangout['title'] ?? 'Hangout',
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
+            // Left gradient accent strip
+            Container(
+              width: 4,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_statusColor, _statusColor.withOpacity(0.4)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _statusLabel,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _statusColor,
-                    ),
-                  ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
                 ),
-              ],
-            ),
-            if (hangout['planned_for'] != null) ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  const Icon(Icons.calendar_today,
-                      size: 12, color: AppTheme.mutedForeground),
-                  const SizedBox(width: 4),
-                  Text(
-                    _formatDate(hangout['planned_for'] as String),
-                    style: const TextStyle(
-                        fontSize: 13, color: AppTheme.mutedForeground),
-                  ),
-                ],
               ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.people_outline,
-                    size: 14, color: AppTheme.mutedForeground),
-                const SizedBox(width: 4),
-                Text(
-                  'Tap to view & submit preferences',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppTheme.mutedForeground),
+            ),
+            // Content
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title + status badge
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            hangout['title'] ?? 'Hangout',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(_statusIcon,
+                                  size: 11, color: _statusColor),
+                              const SizedBox(width: 4),
+                              Text(
+                                _statusLabel,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _statusColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Group pill
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppTheme.secondary,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${group.emoji} ${group.name}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedForeground,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (hangout['planned_for'] != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today_rounded,
+                              size: 12,
+                              color: AppTheme.mutedForeground),
+                          const SizedBox(width: 5),
+                          Text(
+                            _formatDate(hangout['planned_for'] as String),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.mutedForeground,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    // Action chips row
+                    Row(
+                      children: [
+                        _ActionChip(
+                          label: 'Preferences',
+                          icon: Icons.tune_rounded,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => HangoutDetailScreen(
+                                hangout: hangout,
+                                group: group,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _ActionChip(
+                          label: 'View',
+                          icon: Icons.open_in_new_rounded,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => HangoutDetailScreen(
+                                hangout: hangout,
+                                group: group,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _ActionChip(
+                          label: 'Delete',
+                          icon: Icons.delete_outline_rounded,
+                          isDestructive: true,
+                          onTap: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('Delete Hangout?'),
+                                content: const Text(
+                                    'This will permanently delete this hangout and all preferences.'),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, false),
+                                      child: const Text('Cancel')),
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: const Text('Delete',
+                                        style: TextStyle(
+                                            color: AppTheme.destructive)),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirm == true && context.mounted) {
+                              try {
+                                await context
+                                    .read<HangoutProvider>()
+                                    .deleteHangout(
+                                      hangout['id'] as String,
+                                      group.id,
+                                    );
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(e.toString())));
+                                }
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const Spacer(),
-                const Icon(Icons.chevron_right,
-                    color: AppTheme.mutedForeground),
-              ],
+              ),
             ),
           ],
         ),
@@ -294,6 +516,57 @@ class _HangoutCard extends StatelessWidget {
     } catch (_) {
       return iso;
     }
+  }
+}
+
+// ── Inline action chip ─────────────────────────────────────────
+class _ActionChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool isDestructive;
+
+  const _ActionChip({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.isDestructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDestructive ? AppTheme.destructive : AppTheme.mutedForeground;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          border: Border.all(
+              color: isDestructive
+                  ? AppTheme.destructive.withOpacity(0.3)
+                  : AppTheme.border),
+          borderRadius: BorderRadius.circular(8),
+          color: isDestructive
+              ? AppTheme.destructive.withOpacity(0.05)
+              : Colors.transparent,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1028,16 +1301,33 @@ class _EmptyHangoutsState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('🗓️', style: TextStyle(fontSize: 48)),
-            const SizedBox(height: 16),
-            const Text('No hangouts planned yet',
-                style:
-                    TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            Container(
+              width: 90,
+              height: 90,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF4F46E5).withOpacity(0.1),
+                    const Color(0xFF0EA5E9).withOpacity(0.06),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Text('🗓️', style: TextStyle(fontSize: 40)),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text('Nothing planned yet',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             const Text(
               'Create a hangout and let everyone submit their preferences.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.mutedForeground),
+              style: TextStyle(
+                  color: AppTheme.mutedForeground, height: 1.5),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
@@ -1045,7 +1335,12 @@ class _EmptyHangoutsState extends StatelessWidget {
               icon: const Icon(Icons.add),
               label: const Text('Create a Hangout'),
               style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.primary),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24, vertical: 14),
+                backgroundColor: AppTheme.primary,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
             ),
           ],
         ),

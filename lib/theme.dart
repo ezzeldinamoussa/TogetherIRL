@@ -4,21 +4,28 @@ import 'package:flutter/material.dart';
 /// Edit this file to restyle the whole app at once.
 class AppTheme {
   // ── Brand colors ──────────────────────────────────────────────
-  static const Color primary = Color(0xFF6366F1);       // indigo
+  static const Color primary = Color(0xFF4F46E5);       // indigo
   static const Color primaryForeground = Colors.white;
   static const Color secondary = Color(0xFFF1F5F9);     // slate-100
   static const Color secondaryForeground = Color(0xFF0F172A);
-  static const Color muted = Color(0xFFF8FAFC);
+  static const Color muted = Color(0xFFF1F5F9);
   static const Color mutedForeground = Color(0xFF64748B);
   static const Color border = Color(0xFFE2E8F0);
-  static const Color background = Color(0xFFFFFFFF);
+  static const Color background = Color(0xFFF8FAFC);
   static const Color cardBackground = Color(0xFFFFFFFF);
   static const Color destructive = Color(0xFFEF4444);
 
   // ── Accent colors (for member avatars, quests, premium, etc.) ─
-  static const Color purple = Color(0xFF7C3AED);
+  static const Color purple = Color(0xFF0EA5E9);        // sky blue accent
   static const Color green = Color(0xFF16A34A);
   static const Color yellow = Color(0xFFFACC15);
+
+  // ── Gradients ─────────────────────────────────────────────────
+  static const LinearGradient primaryGradient = LinearGradient(
+    colors: [Color(0xFF4F46E5), Color(0xFF0EA5E9)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 
   // ── Member avatar colors ───────────────────────────────────────
   static const List<Color> memberColors = [
@@ -58,7 +65,7 @@ class AppTheme {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: muted,
+          fillColor: const Color(0xFFF8FAFC),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: border),

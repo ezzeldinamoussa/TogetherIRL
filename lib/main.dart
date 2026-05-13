@@ -15,8 +15,7 @@ import 'screens/planner_screen.dart';
 import 'screens/table_talk_screen.dart';
 import 'screens/bill_screen.dart';
 import 'screens/memories_screen.dart';
-import 'screens/group_screen.dart';
-import 'screens/profile_screen.dart';
+import 'models/models.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -76,24 +75,30 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  final _plannerGroupTrigger = ValueNotifier<Group?>(null);
+
+  @override
+  void dispose() {
+    _plannerGroupTrigger.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<GroupProvider>().loadGroups();
-      context.read<InviteProvider>().loadPendingInvites();
+      final inviteProvider = context.read<InviteProvider>();
+      inviteProvider.loadPendingInvites();
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        inviteProvider.subscribeRealtime(userId);
+        context.read<GroupProvider>().subscribeRealtime(userId);
+      }
     });
   }
 
   void _goToTab(int index) => setState(() => _currentIndex = index);
-
-  String get _avatarInitial {
-    final user = Supabase.instance.client.auth.currentUser;
-    final name = user?.userMetadata?['display_name'] as String?
-        ?? user?.email ?? '?';
-    return name[0].toUpperCase();
-  }
 
   void _showCreateGroup() {
     final provider = context.read<GroupProvider>();
@@ -115,83 +120,136 @@ class _MainShellState extends State<MainShell> {
       DashboardScreen(
         onCreateGroup: _showCreateGroup,
         onViewPlanner: () => _goToTab(1),
+        onPlanHangout: (group) {
+          _plannerGroupTrigger.value = group;
+          _goToTab(1);
+        },
+        onViewBills: () => _goToTab(3),
+        onViewMemories: () => _goToTab(4),
       ),
-      const PlannerScreen(),
+      PlannerScreen(groupTrigger: _plannerGroupTrigger),
       const TableTalkScreen(),
       const BillScreen(),
       const MemoriesScreen(),
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('TogetherIRL'),
-        actions: [
-          GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProfileScreen()),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: CircleAvatar(
-                radius: 16,
-                backgroundColor: AppTheme.primary,
-                child: Text(
-                  _avatarInitial,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+      body: IndexedStack(index: _currentIndex, children: screens),
+      bottomNavigationBar: _FloatingNavBar(
+        currentIndex: _currentIndex,
+        onTap: _goToTab,
+        pendingCount: context.watch<InviteProvider>().pendingCount,
+      ),
+    );
+  }
+}
+
+// ── Floating nav bar ───────────────────────────────────────────
+class _FloatingNavBar extends StatelessWidget {
+  final int currentIndex;
+  final void Function(int) onTap;
+  final int pendingCount;
+  const _FloatingNavBar({
+    required this.currentIndex,
+    required this.onTap,
+    required this.pendingCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      (icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
+      (icon: Icons.calendar_today_outlined, activeIcon: Icons.calendar_today_rounded, label: 'Planner'),
+      (icon: Icons.mic_none_outlined, activeIcon: Icons.mic_rounded, label: 'TableTalk'),
+      (icon: Icons.receipt_long_outlined, activeIcon: Icons.receipt_long_rounded, label: 'Bills'),
+      (icon: Icons.auto_stories_outlined, activeIcon: Icons.auto_stories_rounded, label: 'Memories'),
+    ];
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: List.generate(items.length, (i) {
+          final item = items[i];
+          final active = i == currentIndex;
+          return GestureDetector(
+            onTap: () => onTap(i),
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: active
+                    ? const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF0EA5E9)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        active ? item.activeIcon : item.icon,
+                        color: active ? Colors.white : const Color(0xFF94A3B8),
+                        size: 22,
+                      ),
+                      if (i == 0 && pendingCount > 0)
+                        Positioned(
+                          top: -4,
+                          right: -6,
+                          child: Container(
+                            width: 14,
+                            height: 14,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(
+                                '$pendingCount',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                ),
+                  const SizedBox(height: 3),
+                  Text(
+                    item.label,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? Colors.white : const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Divider(height: 1, color: AppTheme.border),
-        ),
-      ),
-      body: IndexedStack(index: _currentIndex, children: screens),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: [
-          BottomNavigationBarItem(
-            icon: Badge(
-              isLabelVisible: context.watch<InviteProvider>().pendingCount > 0,
-              label: Text('${context.watch<InviteProvider>().pendingCount}'),
-              child: const Icon(Icons.home_outlined),
-            ),
-            activeIcon: Badge(
-              isLabelVisible: context.watch<InviteProvider>().pendingCount > 0,
-              label: Text('${context.watch<InviteProvider>().pendingCount}'),
-              child: const Icon(Icons.home),
-            ),
-            label: 'Home',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            activeIcon: Icon(Icons.calendar_today),
-            label: 'Planner',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.mic_none_outlined),
-            activeIcon: Icon(Icons.mic),
-            label: 'TableTalk',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long_outlined),
-            activeIcon: Icon(Icons.receipt_long),
-            label: 'Bills',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.menu_book_outlined),
-            activeIcon: Icon(Icons.menu_book),
-            label: 'Memories',
-          ),
-        ],
+          );
+        }),
       ),
     );
   }
@@ -292,7 +350,7 @@ class _CreateGroupSheetState extends State<_CreateGroupSheet> {
                 child: Container(
                   width: 44, height: 44,                  decoration: BoxDecoration(
                     color: selected
-                        ? AppTheme.primary.withOpacity(0.15)
+                        ? AppTheme.primary.withValues(alpha: 0.15)
                         : AppTheme.secondary,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(

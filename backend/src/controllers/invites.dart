@@ -35,9 +35,37 @@ class InvitesController {
           'status': 'eq.pending',
           'expires_at': 'gt.$now',
         },
-        columns: 'id,created_at,expires_at,groups(id,name,emoji,description),profiles!group_invites_invited_by_fkey(display_name,avatar_url)',
+        columns: 'id,created_at,expires_at,invited_by,groups(id,name,emoji,description)',
       );
-      return _ok(invites);
+
+      // Fetch inviter profiles separately (invited_by → auth.users, not profiles)
+      final inviterIds = invites
+          .map((i) => i['invited_by'] as String?)
+          .whereType<String>()
+          .toSet()
+          .toList();
+
+      Map<String, Map<String, dynamic>> profilesById = {};
+      if (inviterIds.isNotEmpty) {
+        final profiles = await _db.select(
+          'profiles',
+          filters: {'id': 'in.(${inviterIds.join(',')})'},
+          columns: 'id,display_name,avatar_url',
+        );
+        for (final p in profiles) {
+          profilesById[p['id'] as String] = p;
+        }
+      }
+
+      final result = invites.map((invite) {
+        final inviterId = invite['invited_by'] as String?;
+        return {
+          ...invite,
+          'profiles': inviterId != null ? profilesById[inviterId] ?? {} : {},
+        };
+      }).toList();
+
+      return _ok(result);
     } on SupabaseException catch (e) {
       return _serverError(e.body);
     }

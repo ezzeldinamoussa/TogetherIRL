@@ -290,6 +290,14 @@ class ApiService {
     _check(res);
   }
 
+  Future<void> deleteBill(String billId) async {
+    final res = await http.delete(
+      Uri.parse('$_base/api/bills/$billId'),
+      headers: await _headers,
+    );
+    _check(res);
+  }
+
   void _check(http.Response res) {
     if (res.statusCode >= 400) {
       final body = jsonDecode(res.body) as Map<String, dynamic>;
