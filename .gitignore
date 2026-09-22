@@ -42,6 +42,12 @@ android/
 # iOS
 ios/
 
+# Other generated platform folders
+linux/
+macos/
+windows/
+web/
+
 # Symbolication related
 app.*.symbols
 
