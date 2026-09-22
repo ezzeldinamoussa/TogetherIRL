@@ -54,6 +54,10 @@ class HangoutController {
   Future<Response> _createHangout(Request req) async {
     final userId = req.userId;
     final body = jsonDecode(await req.readAsString()) as Map<String, dynamic>;
+
+    print('PREFERENCES RECEIVED BY BACKEND: $body');
+    print('BUDGET RECEIVED: ${body['budget_range']}');
+    
     final groupId = body['group_id'] as String?;
 
     if (groupId == null) return _badRequest('group_id is required');
@@ -384,27 +388,42 @@ class HangoutController {
     final conflicts = <String, dynamic>{};
 
     // Budget conflict: check if people are on very different tiers
+    // Budget conflict: check if people have significantly different budgets
     final budgets = prefs
         .where((p) => p['budget_range'] != null)
-        .map((p) => p['budget_range'] as String)
-        .toSet();
+        .map((p) => (p['budget_range'] as num).toDouble())
+        .toList();
 
-    if (budgets.contains('\$') && budgets.contains('\$\$\$')) {
-      final cheapPeople = prefs
-          .where((p) => p['budget_range'] == '\$')
-          .map((p) => p['display_name'])
-          .toList();
-      final spendy = prefs
-          .where((p) => p['budget_range'] == '\$\$\$')
-          .map((p) => p['display_name'])
-          .toList();
-      conflicts['budget'] = {
-        'has_conflict': true,
-        'message': 'Budget mismatch in the group',
-        'low_budget': cheapPeople,
-        'high_budget': spendy,
-        'suggestion': 'Consider a "\$\$" spot that works for everyone, or split the plan.',
-      };
+    if (budgets.length >= 2) {
+      final lowest = budgets.reduce((a, b) => a < b ? a : b);
+      final highest = budgets.reduce((a, b) => a > b ? a : b);
+
+      // Consider it a conflict if the highest budget is
+      // at least $50 more than the lowest budget.
+      if (highest - lowest >= 50) {
+        final lowBudgetPeople = prefs
+            .where((p) =>
+                p['budget_range'] != null &&
+                (p['budget_range'] as num).toDouble() == lowest)
+            .map((p) => p['display_name'])
+            .toList();
+
+        final highBudgetPeople = prefs
+            .where((p) =>
+                p['budget_range'] != null &&
+                (p['budget_range'] as num).toDouble() == highest)
+            .map((p) => p['display_name'])
+            .toList();
+
+        conflicts['budget'] = {
+          'has_conflict': true,
+          'message': 'Budget mismatch in the group',
+          'low_budget': lowBudgetPeople,
+          'high_budget': highBudgetPeople,
+          'lowest_budget': lowest,
+          'highest_budget': highest,
+        };
+      }
     }
 
     // Dietary conflicts: collect all restrictions so venue search can filter
@@ -454,24 +473,19 @@ class HangoutController {
   }
 
   /// Summarizes the budget tiers across all submitted preferences.
-  Map<String, dynamic> _budgetSummary(List<Map<String, dynamic>> prefs) {
-    final counts = <String, int>{'\$': 0, '\$\$': 0, '\$\$\$': 0, 'not_set': 0};
-    for (final p in prefs) {
-      final budget = p['budget_range'] as String?;
-      if (budget == null || !counts.containsKey(budget)) {
-        counts['not_set'] = (counts['not_set'] ?? 0) + 1;
-      } else {
-        counts[budget] = (counts[budget] ?? 0) + 1;
-      }
-    }
-    // The "consensus" budget is the most conservative (lowest) tier submitted
-    String? consensus;
-    if ((counts['\$'] ?? 0) > 0) consensus = '\$';
-    else if ((counts['\$\$'] ?? 0) > 0) consensus = '\$\$';
-    else if ((counts['\$\$\$'] ?? 0) > 0) consensus = '\$\$\$';
-
-    return {'breakdown': counts, 'consensus_budget': consensus};
-  }
+Map<String, dynamic> _budgetSummary(List<Map<String, dynamic>> prefs) {
+  final values = prefs
+      .where((p) => p['budget_range'] != null)
+      .map((p) => (p['budget_range'] as num).toDouble())
+      .toList();
+  if (values.isEmpty) return {'average': null, 'min': null, 'max': null};
+  final avg = values.reduce((a, b) => a + b) / values.length;
+  return {
+    'average': double.parse(avg.toStringAsFixed(2)),
+    'min': values.reduce((a, b) => a < b ? a : b),
+    'max': values.reduce((a, b) => a > b ? a : b),
+  };
+}
 }
 
 // ─── Response helpers ──────────────────────────────────────────────────────────

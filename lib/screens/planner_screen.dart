@@ -858,7 +858,7 @@ class HangoutDetailScreen extends StatefulWidget {
 
 class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
   // Preferences form state
-  String? _budget;
+  double _budget = 25;
   final Set<String> _activities = {};
   final Set<String> _foods = {};
   final _notesController = TextEditingController();
@@ -866,13 +866,22 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
   bool _submitted = false;
   String? _error;
 
-  static const _budgets = ['\$', '\$\$', '\$\$\$'];
+  static const double _minBudget = 25;
+  static const double _maxBudget = 200;
+
   static const _activityOptions = [
-    'Food', 'Coffee', 'Dessert', 'Activities', 'Shopping', 'Nightlife'
-  ];
+  'Coffee & Brunch',
+  'Food',
+  'Dessert',
+  'Entertainment',
+  'Outdoors',
+  'Arts & Culture',
+  'Shopping',
+];
+
   static const _foodOptions = [
-    'Italian', 'Mexican', 'Asian', 'American', 'Mediterranean',
-    'Korean', 'Thai', 'Indian', 'Mediterranean', 'BBQ',
+    'Italian', 'French', 'Mexican', 'Latin American', 'Japanese', 'Chinese', 'Vietnamese','Korean', 'Thai', 'American', 'Mediterranean', 'Greek', 'Middle Eastern',
+    'Indian', 'No Preference'
   ];
 
   @override
@@ -911,12 +920,12 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
     setState(() { _submitting = true; _error = null; });
     try {
       final prefs = <String, dynamic>{
-        if (_budget != null) 'budget_range': _budget,
+        'budget_range': _budget.round(),
         if (_activities.isNotEmpty) 'activity_types': _activities.toList(),
         if (_foods.isNotEmpty) 'food_preferences': _foods.toList(),
         if (_notesController.text.trim().isNotEmpty)
           'notes': _notesController.text.trim(),
-      };
+};
       await context
           .read<HangoutProvider>()
           .submitPreferences(
@@ -967,43 +976,62 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Budget
-              const Text('Budget',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
+              // Budget per person
+              const Text(
+                'Budget per person',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'For the entire hangout',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.mutedForeground,
+                ),
+              ),
               const SizedBox(height: 8),
-              Row(
-                children: _budgets.map((b) {
-                  final sel = _budget == b;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 10),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _budget = b),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: sel
-                              ? AppTheme.primary
-                              : AppTheme.secondary,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: sel
-                                ? AppTheme.primary
-                                : Colors.transparent,
-                          ),
-                        ),
-                        child: Text(
-                          b,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            color: sel ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                      ),
+
+              Center(
+                child: Text(
+                  '\$${_budget.round()}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ),
+
+              Slider(
+                value: _budget,
+                min: _minBudget,
+                max: _maxBudget,
+                divisions: 35,
+                label: '\$${_budget.round()}',
+                activeColor: AppTheme.primary,
+                onChanged: (value) {
+                  setState(() => _budget = value);
+                },
+              ),
+
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '\$25',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.mutedForeground,
                     ),
-                  );
-                }).toList(),
+                  ),
+                  Text(
+                    '\$200+',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.mutedForeground,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
 
