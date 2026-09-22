@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../services/table_talk_audio_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:vibration/vibration.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show Helper;
 
 enum _VoiceGroup { foreground, background }
 
@@ -44,7 +45,7 @@ class TableTalkScreen extends StatefulWidget {
 }
 
 class _TableTalkScreenState extends State<TableTalkScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final TableTalkAudioService _audioService = TableTalkAudioService();
 
   bool _isConnectedToAudio = false;
@@ -81,6 +82,8 @@ class _TableTalkScreenState extends State<TableTalkScreen>
 void initState() {
   super.initState();
 
+  WidgetsBinding.instance.addObserver(this);
+
   _pulseCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
@@ -96,6 +99,8 @@ void initState() {
 
 @override
 void dispose() {
+  WidgetsBinding.instance.removeObserver(this);
+
   // Remove the room listener before disconnecting so the screen
   // does not try to update after it has already been closed.
   _audioService.room?.removeListener(_roomListener);
@@ -109,6 +114,15 @@ void dispose() {
   _pulseCtrl.dispose();
   _audioService.disconnect();
   super.dispose();
+}
+
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed && _isConnectedToAudio) {
+    // Reassert speakerphone routing — Android can silently revert
+    // this after the app is backgrounded and foregrounded again.
+    Helper.setSpeakerphoneOn(true);
+  }
 }
 
 void _setupNudgeSocket() {
