@@ -3,9 +3,11 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import '../config/supabase_client.dart';
 import '../middleware/auth_middleware.dart';
+import '../../../lib/services/geocoding_service.dart';
 
 class ProfilesController {
   final _db = SupabaseClient.admin;
+  final _geocoder = GeocodingService();
 
   Router get router {
     final router = Router();
@@ -42,7 +44,7 @@ class ProfilesController {
   //   "dietary_restrictions": ["vegetarian", "nut-allergy"],
   //   "max_travel_distance_km": 8
   // }
-  Future<Response> _upsertMyProfile(Request req) async {
+    Future<Response> _upsertMyProfile(Request req) async {
     final userId = req.userId;
     final body = jsonDecode(await req.readAsString()) as Map<String, dynamic>;
 
@@ -55,12 +57,28 @@ class ProfilesController {
       'display_name',
       'avatar_url',
       'bio',
-      'dietary_restrictions',    // hard limits — stays on profile
-      'max_travel_distance_km',  // general default — can be overridden per hangout
+      'dietary_restrictions',
+      'max_travel_distance_km',
+      'zipcode',
     ];
-
     for (final field in allowedFields) {
       if (body.containsKey(field)) profileData[field] = body[field];
+    }
+
+    // Geocode whenever a zipcode is sent
+    final zip = (body['zipcode'] as String?)?.trim() ?? '';
+    if (zip.isNotEmpty) {
+      final zip5 = zip.length >= 5 ? zip.substring(0, 5) : zip; // handles ZIP+4
+      final point = await _geocoder.geocodeZip(zip5);
+      if (point != null) {
+        profileData['home_lat'] = point.lat;
+        profileData['home_lng'] = point.lng;
+        print('Geocoded $zip5 -> ${point.lat}, ${point.lng}');
+      } else {
+        print('Geocoding FAILED for zipcode "$zip5"');
+      }
+    } else {
+      print('No zipcode in profile save body: ${body.keys.toList()}');
     }
 
     try {
@@ -70,7 +88,6 @@ class ProfilesController {
       return _serverError(e.body);
     }
   }
-
   // GET /<userId> — public profile for group member cards
   Future<Response> _getProfileById(Request req) async {
     final userId = req.params['userId']!;
@@ -78,7 +95,7 @@ class ProfilesController {
       final rows = await _db.select(
         'profiles',
         filters: {'id': 'eq.$userId'},
-        columns: 'id,display_name,avatar_url,bio,dietary_restrictions,max_travel_distance_km',
+        columns: 'id,display_name,avatar_url,bio,dietary_restrictions,max_travel_distance_km,zipcode', 
         single: true,
       );
       if (rows.isEmpty) return _notFound('Profile not found');

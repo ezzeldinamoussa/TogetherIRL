@@ -18,6 +18,8 @@ class Env {
   // OCR
   static String get ocrSpaceApiKey => _required('OCR_SPACE_API_KEY');
 
+  static String get geminiApiKey => _required('GEMINI_API_KEY');
+
   static String _required(String key) {
     final value = _env[key];
     if (value == null || value.isEmpty) {

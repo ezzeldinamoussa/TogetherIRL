@@ -15,6 +15,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _bioController = TextEditingController();
+  final _zipCodeController = TextEditingController();
   final Set<String> _dietaryRestrictions = {};
   double _maxDistance = 10;
 
@@ -43,6 +44,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _bioController.dispose();
+    _zipCodeController.dispose();
     super.dispose();
   }
 
@@ -51,6 +53,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final profile = await ApiService.instance.getMyProfile();
       _nameController.text = profile['display_name'] as String? ?? '';
       _bioController.text = profile['bio'] as String? ?? '';
+      _zipCodeController.text = profile['zipcode'] as String? ?? '';
       _maxDistance =
           ((profile['max_travel_distance_km'] as num?)?.toDouble()) ?? 10;
       final restrictions = profile['dietary_restrictions'] as List? ?? [];
@@ -67,6 +70,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'bio': _bioController.text.trim(),
         'dietary_restrictions': _dietaryRestrictions.toList(),
         'max_travel_distance_km': _maxDistance.round(),
+        'zipcode': _zipCodeController.text.trim(),
       });
       setState(() { _success = 'Profile saved!'; _editMode = false; });
     } catch (e) {
@@ -413,69 +417,131 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Travel Distance',
                     icon: Icons.place_outlined,
                     subtitle:
-                        'Max distance you\'re willing to travel for a hangout',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('How far will you go?',
-                                style: TextStyle(
-                                    fontSize: 13, color: Color(0xFF64748B))),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 5),
-                              decoration: BoxDecoration(
-                                color:
-                                    const Color(0xFF4F46E5).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '${_maxDistance.round()} km',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF4F46E5),
-                                ),
-                              ),
+                        'Max distance from home for a hangout',
+                    trailing: SizedBox(
+                      width: 95,
+                      child: TextField(
+                        controller: _zipCodeController,
+                        enabled: _editMode,
+                        keyboardType: TextInputType.number,
+                        maxLength: 5,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                        ),
+                        decoration: InputDecoration(
+                          counterText: '',
+                          labelText: 'ZIP Code',
+                          labelStyle: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF64748B),
+                          ),
+                          hintText: '10001',
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 12,
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2E8F0),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            activeTrackColor: const Color(0xFF4F46E5),
-                            inactiveTrackColor:
-                                const Color(0xFF4F46E5).withOpacity(0.15),
-                            thumbColor: const Color(0xFF4F46E5),
-                            overlayColor:
-                                const Color(0xFF4F46E5).withOpacity(0.12),
-                            trackHeight: 4,
                           ),
-                          child: Slider(
-                            value: _maxDistance,
-                            min: 1,
-                            max: 50,
-                            divisions: 49,
-                            onChanged: _editMode
-                                ? (v) => setState(() => _maxDistance = v)
-                                : null,
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF4F46E5),
+                              width: 1.5,
+                            ),
                           ),
                         ),
-                        const Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('1 km',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                            Text('50 km',
-                                style: TextStyle(
-                                    fontSize: 11, color: Color(0xFF94A3B8))),
-                          ],
+                      ),
+                    ),
+                    child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 12),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Maximum distance from home',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF4F46E5).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${_maxDistance.round()} km',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF4F46E5),
+                            ),
+                          ),
                         ),
                       ],
                     ),
+
+    SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        activeTrackColor: const Color(0xFF4F46E5),
+        inactiveTrackColor:
+            const Color(0xFF4F46E5).withOpacity(0.15),
+        thumbColor: const Color(0xFF4F46E5),
+        overlayColor:
+            const Color(0xFF4F46E5).withOpacity(0.12),
+        trackHeight: 4,
+      ),
+      child: Slider(
+        value: _maxDistance,
+        min: 1,
+        max: 50,
+        divisions: 49,
+        onChanged: _editMode
+            ? (v) => setState(() => _maxDistance = v)
+            : null,
+      ),
+    ),
+
+    const Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          '1 km',
+          style: TextStyle(
+            fontSize: 11,
+            color: Color(0xFF94A3B8),
+          ),
+        ),
+        Text(
+          '50 km',
+          style: TextStyle(
+            fontSize: 11,
+            color: Color(0xFF94A3B8),
+          ),
+        ),
+      ],
+    ),
+  ],
+),
                   ),
                 ),
 
@@ -700,14 +766,16 @@ class _Section extends StatelessWidget {
   final String title;
   final IconData icon;
   final String? subtitle;
+  final Widget? trailing;
   final Widget child;
 
   const _Section({
-    required this.title,
-    required this.icon,
-    this.subtitle,
-    required this.child,
-  });
+  required this.title,
+  required this.icon,
+  this.subtitle,
+  this.trailing,
+  required this.child,
+});
 
   @override
   Widget build(BuildContext context) {
@@ -730,36 +798,48 @@ class _Section extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color:
-                        const Color(0xFF4F46E5).withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon,
-                      size: 16, color: const Color(0xFF4F46E5)),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF0F172A))),
-                    if (subtitle != null)
-                      Text(subtitle!,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF94A3B8))),
-                  ],
-                ),
-              ],
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFF4F46E5).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                size: 16,
+                color: const Color(0xFF4F46E5),
+              ),
             ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  if (subtitle != null)
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF94A3B8),
+                      ),
+                    ),
+                ],
+              ),
+    ),
+    if (trailing != null) trailing!,
+  ],
+),
             const SizedBox(height: 16),
             child,
           ],
