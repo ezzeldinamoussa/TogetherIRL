@@ -1,591 +1,316 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../config.dart';
 import 'distance_scoring.dart';
 
+/// Asks Gemini for up to 3 different plans built ONLY from verified places.
+/// The API key and model are injected (the backend passes Env values), so this
+/// file no longer depends on the Flutter app's AppConfig.
 class ItineraryAiService {
-  static const _model = 'gemini-3.7-flash';
+  static const _defaultModels = [
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+  ];
 
-  Future<Map<String, dynamic>> generate({
+  final String apiKey;
+
+  /// Tried in order. On a bad model name (404), quota (429), overload (503)
+  /// or timeout we move to the next model immediately.
+  final List<String> models;
+
+  ItineraryAiService({
+    required this.apiKey,
+    List<String>? models,
+  }) : models = models ?? _defaultModels;
+
+  /// Returns the RAW plans from Gemini. They are NOT trusted yet —
+  /// run them through buildValidatedPlans().
+  Future<List<Map<String, dynamic>>> generatePlans({
     required String hangoutTitle,
+    String? plannedFor,
     required List<Map<String, dynamic>> memberConstraints,
-    required List<ScoredPlace> candidatePlaces,
+    required List<CandidateArea> areas,
+    String? retryFeedback,
   }) async {
     final prompt = _buildPrompt(
-      hangoutTitle,
-      memberConstraints,
-      candidatePlaces,
+      title: hangoutTitle,
+      plannedFor: plannedFor,
+      constraints: memberConstraints,
+      areas: areas,
+      retryFeedback: retryFeedback,
     );
 
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent'
-      '?key=${AppConfig.geminiApiKey}',
-    );
+    final errors = <String>[];
 
-    const maxRetries = 3;
+    for (final model in models) {
+      // Key goes in a header so it never ends up in URLs or exception text.
+      final uri = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
+      );
 
-    for (var attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        final res = await http
-            .post(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: jsonEncode({
-                'contents': [
-                  {
-                    'role': 'user',
-                    'parts': [
-                      {'text': prompt},
-                    ],
-                  },
-                ],
-                'generationConfig': {
-                  'temperature': 0.6,
-                  'responseMimeType': 'application/json',
-                  'responseSchema': _responseSchema,
+      for (var attempt = 0; attempt <= 1; attempt++) {
+        try {
+          final res = await http
+              .post(
+                uri,
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-goog-api-key': apiKey,
                 },
-              }),
-            )
-            .timeout(
-              const Duration(seconds: 60),
-            );
+                body: jsonEncode({
+                  'contents': [
+                    {
+                      'role': 'user',
+                      'parts': [
+                        {'text': prompt},
+                      ],
+                    },
+                  ],
+                  'generationConfig': {
+                    'temperature': retryFeedback == null ? 0.7 : 0.4,
+                    'responseMimeType': 'application/json',
+                    'responseSchema': _responseSchema,
+                  },
+                }),
+              )
+              .timeout(const Duration(seconds: 45));
 
-        // ----------------------------------------------------------
-        // SUCCESS
-        // ----------------------------------------------------------
-
-        if (res.statusCode < 400) {
-          final decoded =
-              jsonDecode(res.body) as Map<String, dynamic>;
-
-          final candidates =
-              decoded['candidates'] as List?;
-
-          if (candidates == null || candidates.isEmpty) {
-            throw ItineraryAiException(
-              'Gemini returned no candidates',
-            );
+          if (res.statusCode < 400) {
+            print('Gemini model used: $model');
+            return _parsePlans(res.body);
           }
 
-          final firstCandidate =
-              candidates.first as Map<String, dynamic>;
-
-          final content =
-              firstCandidate['content']
-                  as Map<String, dynamic>?;
-
-          final parts =
-              content?['parts'] as List? ?? [];
-
-          final text = parts.isNotEmpty
-              ? (parts.first as Map<String, dynamic>)['text']
-                  as String?
-              : null;
-
-          if (text == null || text.trim().isEmpty) {
-            throw ItineraryAiException(
-              'Gemini response had no text content',
-            );
+          if (res.statusCode == 404 || res.statusCode == 429 || res.statusCode == 503) {
+            final msg = '$model rejected (${res.statusCode}); trying next model';
+            print(msg);
+            errors.add(msg);
+            break;
           }
 
-          final result = jsonDecode(text);
-
-          if (result is! Map<String, dynamic>) {
-            throw ItineraryAiException(
-              'Gemini returned an unexpected JSON format',
-            );
+          if (attempt == 1) {
+            final msg = '$model failed (${res.statusCode}): ${res.body}';
+            print(msg);
+            errors.add(msg);
+            break;
           }
-
-          // --------------------------------------------------------
-          // VALIDATE GENERATED STOPS
-          // --------------------------------------------------------
-
-          final stops = result['stops'];
-
-          if (stops is! List) {
-            throw ItineraryAiException(
-              'Gemini response did not contain a valid stops list',
-            );
-          }
-
-          if (stops.isEmpty) {
-            throw ItineraryAiException(
-              'Gemini generated an itinerary with no stops',
-            );
-          }
-
-          // --------------------------------------------------------
-          // PRINT GENERATED ITINERARY
-          // --------------------------------------------------------
-
-          print('');
-          print('========== GENERATED ITINERARY ==========');
-          print('Summary: ${result['summary']}');
-          print('');
-
-          for (var i = 0; i < stops.length; i++) {
-            final stop = stops[i];
-
-            if (stop is! Map<String, dynamic>) {
-              print('Stop ${i + 1}: invalid stop data');
-              continue;
-            }
-
-            print('Stop ${i + 1}:');
-            print('  Type: ${stop['type']}');
-            print('  Name: ${stop['name']}');
-            print('  Address: ${stop['address']}');
-            print(
-              '  Suggested time: '
-              '${stop['suggested_time']}',
-            );
-            print('  Reason: ${stop['reason']}');
-            print('');
-          }
-
-          print('==========================================');
-          print('');
-
-          // IMPORTANT:
-          // Return the complete result.
-          //
-          // This keeps:
-          // result['summary']
-          // result['stops']
-          //
-          // available for HangoutController and the Flutter UI.
-          return result;
+          await Future.delayed(const Duration(seconds: 2));
+        } on TimeoutException {
+          final msg = '$model timed out; trying next model';
+          print(msg);
+          errors.add(msg);
+          break;
+        } catch (e) {
+          final msg = '$model error: $e; trying next model';
+          print(msg);
+          errors.add(msg);
+          break;
         }
-
-        // ----------------------------------------------------------
-        // RETRY TEMPORARY HTTP ERRORS
-        // ----------------------------------------------------------
-
-        final shouldRetry =
-            res.statusCode == 429 ||
-            res.statusCode == 503 ||
-            res.statusCode == 504;
-
-        if (!shouldRetry || attempt == maxRetries) {
-          throw ItineraryAiException(
-            'Gemini request failed '
-            '(${res.statusCode}): ${res.body}',
-          );
-        }
-
-        final delaySeconds = 2 << attempt;
-
-        print(
-          'Gemini returned ${res.statusCode}. '
-          'Retrying in ${delaySeconds}s '
-          '(attempt ${attempt + 1}/$maxRetries)...',
-        );
-
-        await Future.delayed(
-          Duration(seconds: delaySeconds),
-        );
-      } on TimeoutException catch (e) {
-        if (attempt == maxRetries) {
-          throw ItineraryAiException(
-            'Gemini request timed out after '
-            '${maxRetries + 1} attempts: $e',
-          );
-        }
-
-        final delaySeconds = 2 << attempt;
-
-        print(
-          'Gemini request timed out. '
-          'Retrying in ${delaySeconds}s '
-          '(attempt ${attempt + 1}/$maxRetries)...',
-        );
-
-        await Future.delayed(
-          Duration(seconds: delaySeconds),
-        );
       }
     }
 
-    throw ItineraryAiException(
-      'Gemini request failed after all retry attempts',
-    );
+    throw ItineraryAiException('All Gemini models failed:\n${errors.join('\n')}');
+  }
+
+  List<Map<String, dynamic>> _parsePlans(String body) {
+    final decoded = jsonDecode(body) as Map<String, dynamic>;
+
+    final candidates = decoded['candidates'] as List?;
+    if (candidates == null || candidates.isEmpty) {
+      throw ItineraryAiException('Gemini returned no candidates');
+    }
+
+    final content = (candidates.first as Map<String, dynamic>)['content'] as Map<String, dynamic>?;
+    final parts = content?['parts'] as List? ?? [];
+    final text = parts.isNotEmpty ? (parts.first as Map<String, dynamic>)['text'] as String? : null;
+
+    if (text == null || text.trim().isEmpty) {
+      throw ItineraryAiException('Gemini response had no text content');
+    }
+
+    final result = jsonDecode(text);
+    if (result is! Map<String, dynamic>) {
+      throw ItineraryAiException('Gemini returned an unexpected JSON format');
+    }
+
+    final plans = result['plans'];
+    if (plans is! List || plans.isEmpty) {
+      throw ItineraryAiException('Gemini response did not contain any plans');
+    }
+
+    final out = plans.whereType<Map>().map((p) => Map<String, dynamic>.from(p)).toList();
+
+    print('Gemini returned ${out.length} plan(s): '
+        '${out.map((p) => '"${p['title']}"').join(', ')}');
+
+    return out;
   }
 
   // ------------------------------------------------------------
   // PROMPT
   // ------------------------------------------------------------
 
-  String _buildPrompt(
-    String title,
-    List<Map<String, dynamic>> constraints,
-    List<ScoredPlace> places,
-  ) {
+  Map<String, String> _memberNames(List<Map<String, dynamic>> constraints) {
+    final names = <String, String>{};
+    final used = <String, int>{};
+    for (final c in constraints) {
+      final id = c['user_id'] as String;
+      var name = (c['display_name'] as String?)?.trim();
+      if (name == null || name.isEmpty) name = 'Member';
+      final n = used[name] = (used[name] ?? 0) + 1;
+      names[id] = n == 1 ? name : '$name ($n)';
+    }
+    return names;
+  }
+
+  String _buildPrompt({
+    required String title,
+    required String? plannedFor,
+    required List<Map<String, dynamic>> constraints,
+    required List<CandidateArea> areas,
+    required String? retryFeedback,
+  }) {
+    final names = _memberNames(constraints);
     final buf = StringBuffer();
 
-    buf.writeln(
-      'You are planning a realistic group hangout called "$title".',
-    );
-
+    buf.writeln('You are planning a realistic group hangout called "$title".');
+    if (plannedFor != null) {
+      buf.writeln('Planned start (local clock time): $plannedFor. '
+          'Start the first stop around then and space later stops realistically.');
+    }
+    buf.writeln();
+    buf.writeln('TASK: Build 3 DIFFERENT outing plans for this group, using ONLY the '
+        'verified places listed below.');
     buf.writeln();
 
-    buf.writeln(
-      'Your job is to choose a small number of places from the '
-      'verified candidate list and turn them into a coherent outing.',
-    );
-
-    buf.writeln();
-
-    // ------------------------------------------------------------
-    // MEMBERS
-    // ------------------------------------------------------------
-
+    // ── Members ──
     buf.writeln('GROUP MEMBERS AND PREFERENCES:');
 
+    final budgets = <double>[];
     for (final p in constraints) {
-      final name =
-          p['display_name'] ?? 'A member';
+      final budget = p['budget_range'];
+      if (budget is num) budgets.add(budget.toDouble());
 
-      final budget =
-          p['budget_range'];
+      final activities = (p['activity_types'] as List?)?.join(', ');
+      final foods = (p['food_preferences'] as List?)?.join(', ');
+      final hard = (p['all_dietary_constraints'] as List?)?.join(', ');
+      final maxTravel = p['max_travel_distance_km'];
+      final notes = p['notes'];
+      final start = p['location_source'] ?? 'home';
 
-      final activities =
-          (p['activity_types'] as List?)
-              ?.join(', ');
-
-      final foods =
-          (p['food_preferences'] as List?)
-              ?.join(', ');
-
-      final hardConstraints =
-          (p['all_dietary_constraints'] as List?)
-              ?.join(', ');
-
-      final maxTravel =
-          p['max_travel_distance_km'];
-
-      final notes =
-          p['notes'];
-
-      buf.writeln('- $name:');
-
-      buf.writeln(
-        '  budget per person: '
-        '${budget != null ? '\$$budget' : 'not specified'}',
-      );
-
-      buf.writeln(
-        '  activity preferences: '
-        '${activities?.isNotEmpty == true ? activities : 'none specified'}',
-      );
-
-      buf.writeln(
-        '  food preferences: '
-        '${foods?.isNotEmpty == true ? foods : 'none specified'}',
-      );
-
-      buf.writeln(
-        '  HARD dietary constraints: '
-        '${hardConstraints?.isNotEmpty == true ? hardConstraints : 'none'}',
-      );
-
-      buf.writeln(
-        '  preferred maximum travel distance: '
-        '${maxTravel != null ? '$maxTravel km' : 'not specified'}',
-      );
-
-      if (notes is String &&
-          notes.trim().isNotEmpty) {
-        buf.writeln(
-          '  notes: $notes',
-        );
-      }
+      buf.writeln('- ${names[p['user_id']]}:');
+      buf.writeln('  starting from: $start');
+      buf.writeln('  budget per person for the whole outing: '
+          '${budget != null ? '\$$budget' : 'not specified'}');
+      buf.writeln('  activity preferences: '
+          '${activities?.isNotEmpty == true ? activities : 'none specified'}');
+      buf.writeln('  food preferences: ${foods?.isNotEmpty == true ? foods : 'none specified'}');
+      buf.writeln('  HARD dietary constraints: ${hard?.isNotEmpty == true ? hard : 'none'}');
+      buf.writeln('  preferred max travel distance: '
+          '${maxTravel != null ? '$maxTravel km' : 'not specified'}');
+      if (notes is String && notes.trim().isNotEmpty) buf.writeln('  notes: $notes');
     }
 
+    if (budgets.isNotEmpty) {
+      budgets.sort();
+      buf.writeln();
+      buf.writeln('LOWEST BUDGET IN THE GROUP: \$${budgets.first.toStringAsFixed(0)} per person.');
+    }
     buf.writeln();
 
-    // ------------------------------------------------------------
-    // REAL PLACES
-    // ------------------------------------------------------------
-
-    buf.writeln(
-      'VERIFIED REAL PLACES:',
-    );
-
-    buf.writeln(
-      'You may ONLY choose places from the JSON list below.',
-    );
-
-    buf.writeln(
-      'Do NOT invent a restaurant, activity, business, address, '
-      'or place that is not in this list.',
-    );
-
+    // ── Places ──
+    buf.writeln('VERIFIED PLACES, GROUPED BY AREA:');
+    buf.writeln('Every plan must use ONLY places from this JSON, referenced by their '
+        '"place_id". Never invent a place, address or id.');
+    buf.writeln('"km_from_each_member" is the distance from each member\'s starting point.');
+    buf.writeln();
+    buf.writeln(jsonEncode({
+      'areas': areas
+          .map((a) => {
+                'area_id': a.id,
+                'places': a.places.map((p) => p.toPromptJson(names: names)).toList(),
+              })
+          .toList(),
+    }));
     buf.writeln();
 
-    buf.writeln(
-      'Each place contains:',
-    );
-
-    buf.writeln('- name');
-    buf.writeln('- category');
-    buf.writeln('- budget_hint');
-    buf.writeln('- exact address');
-    buf.writeln('- exact latitude and longitude');
-    buf.writeln('- distance_km_by_member');
-    buf.writeln('- group_distance_score');
-
+    // ── Rules ──
+    buf.writeln('PLAN RULES:');
+    buf.writeln('1. Produce exactly 3 plans (fewer only if truly impossible).');
+    buf.writeln('2. Each plan has 2 to 4 stops, ALL from the SAME area_id.');
+    buf.writeln('3. Consecutive stops must be close together; avoid back-and-forth travel. '
+        'A typical order is food -> dessert/coffee -> activity when those match the group.');
+    buf.writeln('4. The plans must be meaningfully different. If there are several areas, '
+        'prefer using a different area for each plan. Two plans may share at most ONE stop.');
+    buf.writeln('5. Give each plan one "theme" from: best_fit, budget_friendly, '
+        'activity_packed, closest. Plan 1 should be best_fit, plan 2 budget_friendly, '
+        'and plan 3 activity_packed if the group asked for several activities, '
+        'otherwise closest. Do not reuse a theme.');
+    buf.writeln('6. Use "km_from_each_member" with each member\'s preferred max distance. '
+        'Prefer places within or near everyone\'s range; if impossible, pick the best compromise.');
     buf.writeln();
 
-    buf.writeln(
-      'Use distance_km_by_member together with each member\'s '
-      'preferred maximum travel distance.',
-    );
+    // Activities the group asked for besides eating.
+    final wanted = <String>{};
+    for (final p in constraints) {
+      for (final a in (p['activity_types'] as List? ?? const [])) {
+        wanted.add(a.toString());
+      }
+    }
+    final doChips = wanted
+        .where(const {'Entertainment', 'Outdoors', 'Arts & Culture', 'Shopping'}.contains)
+        .toList();
 
-    buf.writeln(
-      'Prefer places that are within or close to everyone\'s '
-      'preferred travel distance.',
-    );
-
-    buf.writeln(
-      'If no place satisfies everyone perfectly, choose the '
-      'best reasonable compromise.',
-    );
-
+    buf.writeln('MATCHING EVERYONE\'S PICKS:');
+    buf.writeln('- Each place lists "activities" (which activity picks it satisfies) and "cuisine".');
+    if (doChips.isNotEmpty) {
+      buf.writeln('- The group asked for things to DO: ${doChips.join(', ')}. '
+          'EVERY plan MUST include at least one stop whose "activities" matches one of these. '
+          'Do NOT make food-only or dessert-only plans.');
+      buf.writeln('- Across the 3 plans, cover as many of those activities as the places allow.');
+    } else {
+      buf.writeln('- The group did not ask for non-food activities, so food and dessert plans are fine.');
+    }
+    buf.writeln('- Serve EVERY member: each plan should include at least one stop matching '
+        'each member\'s own activity picks, and where possible one of their cuisines. '
+        'If one plan cannot serve everyone, rotate so every member is served by at least one plan.');
     buf.writeln();
 
-    buf.writeln(
-      'Available places:',
-    );
-
-    buf.writeln(
-      jsonEncode(
-        places
-            .map((p) => p.toPromptJson())
-            .toList(),
-      ),
-    );
-
+    buf.writeln('BUDGET RULES:');
+    buf.writeln('- "est_cost_per_person" is your realistic USD estimate for the whole plan.');
+    buf.writeln('- Keep it at or under the lowest budget whenever possible, and never make '
+        'the lowest-budget member spend most of their budget on one stop.');
+    buf.writeln('- "budget_hint" is only a rough signal (OSM has no reliable prices). '
+        'Do not assume a place is cheap or expensive beyond what the hint supports.');
+    buf.writeln('- The budget_friendly plan should lean on low / free_or_low / low_to_medium places.');
+    buf.writeln('- If members want MANY activities, keep food and dessert inexpensive.');
     buf.writeln();
 
-    // ------------------------------------------------------------
-    // BUDGET LOGIC
-    // ------------------------------------------------------------
-
-    buf.writeln(
-      'BUDGET RULES:',
-    );
-
-    buf.writeln(
-      '1. Consider the lowest practical budget among the group.',
-    );
-
-    buf.writeln(
-      '2. Do not create an itinerary that requires the lowest-budget '
-      'member to spend most of their budget on one stop.',
-    );
-
-    buf.writeln(
-      '3. If the group has a LOW budget, prefer places with '
-      'budget_hint "low", "low_to_medium", or "free_or_low".',
-    );
-
-    buf.writeln(
-      '4. If the group wants MANY activities, keep food and dessert '
-      'relatively inexpensive so more of the budget remains available '
-      'for activities.',
-    );
-
-    buf.writeln(
-      '5. Fast food, cafes, bakeries, ice cream, parks, beaches, '
-      'and other inexpensive options are appropriate for '
-      'low-budget or activity-heavy outings.',
-    );
-
-    buf.writeln(
-      '6. If the budget is higher, more expensive restaurant or '
-      'activity options may be considered when they match the '
-      'group preferences.',
-    );
-
-    buf.writeln(
-      '7. Do not assume that a place is expensive or cheap unless '
-      'the provided budget_hint supports that assumption.',
-    );
-
-    buf.writeln(
-      '8. The budget_hint is only a general signal because OSM '
-      'does not provide reliable prices for every business.',
-    );
-
+    buf.writeln('ACTIVITY AND DIET RULES:');
+    buf.writeln('- Respect the activities and cuisines the group requested; do not add '
+        'activities that clearly conflict with their preferences.');
+    buf.writeln('- Every HARD dietary constraint must be respected. Do not knowingly pick a '
+        'place that conflicts with one.');
     buf.writeln();
 
-    // ------------------------------------------------------------
-    // ACTIVITY LOGIC
-    // ------------------------------------------------------------
+    buf.writeln('OUTPUT:');
+    buf.writeln('Return JSON only: { "plans": [ { "title", "theme", "summary", "area_id", '
+        '"est_cost_per_person", "stops": [ { "type", "place_id", "name", "suggested_time", '
+        '"reason" } ] } ] }');
+    buf.writeln('- "title": short and fun (e.g. "Slow Brunch + Park Stroll").');
+    buf.writeln('- "summary": 1-2 sentences on why this plan fits the group.');
+    buf.writeln('- "type": food, dessert, activity, or another fitting category.');
+    buf.writeln('- "place_id" and "name" must exactly match the list.');
+    buf.writeln('- "suggested_time": a clock time like "6:00 PM".');
+    buf.writeln('- "reason": one short sentence on why this stop fits and how it connects '
+        'to the neighbouring stops.');
 
-    buf.writeln(
-      'ACTIVITY RULES:',
-    );
-
-    buf.writeln(
-      'Respect the activities requested by the group.',
-    );
-
-    buf.writeln(
-      'If members request MANY activities, prioritize multiple '
-      'appropriate activities and keep food inexpensive.',
-    );
-
-    buf.writeln(
-      'If members request FEWER activities, the itinerary can '
-      'spend more time on a meal or one larger activity.',
-    );
-
-    buf.writeln(
-      'Do not add activities that clearly conflict with the '
-      'members\' preferences.',
-    );
-
-    buf.writeln();
-
-    // ------------------------------------------------------------
-    // GEOGRAPHIC LOGIC
-    // ------------------------------------------------------------
-
-    buf.writeln(
-      'LOCATION RULES:',
-    );
-
-    buf.writeln(
-      'The search radius may be large because one member may have '
-      'a large maximum travel distance.',
-    );
-
-    buf.writeln(
-      'DO NOT interpret the large search radius as permission to '
-      'spread the itinerary across the entire area.',
-    );
-
-    buf.writeln(
-      'Keep all selected stops geographically close together.',
-    );
-
-    buf.writeln(
-      'Minimize travel between consecutive stops.',
-    );
-
-    buf.writeln(
-      'Ideally create a sequence such as:',
-    );
-
-    buf.writeln(
-      'food -> nearby dessert/coffee -> nearby activity',
-    );
-
-    buf.writeln(
-      'when those categories match the group preferences.',
-    );
-
-    buf.writeln(
-      'Do not choose individually appealing places that are far '
-      'apart if a reasonable nearby combination exists.',
-    );
-
-    buf.writeln();
-
-    // ------------------------------------------------------------
-    // DIETARY RULES
-    // ------------------------------------------------------------
-
-    buf.writeln(
-      'DIETARY RULES:',
-    );
-
-    buf.writeln(
-      'Every HARD dietary constraint must be respected.',
-    );
-
-    buf.writeln(
-      'Do not knowingly recommend a place that conflicts with '
-      'a member\'s hard dietary restriction.',
-    );
-
-    buf.writeln();
-
-    // ------------------------------------------------------------
-    // OUTPUT
-    // ------------------------------------------------------------
-
-    buf.writeln(
-      'OUTPUT:',
-    );
-
-    buf.writeln(
-      'Produce 1 to 4 stops.',
-    );
-
-    buf.writeln(
-      'Every stop MUST be a real place from the verified '
-      'candidate list.',
-    );
-
-    buf.writeln(
-      'Use the EXACT name from the candidate list.',
-    );
-
-    buf.writeln(
-      'Use the EXACT address from the candidate list.',
-    );
-
-    buf.writeln(
-      'Do not modify business names or addresses.',
-    );
-
-    buf.writeln(
-      'Do not invent names, addresses, businesses, or locations.',
-    );
-
-    buf.writeln(
-      'Give each stop a short reason explaining why it fits the '
-      'group and how its location works with the other stops.',
-    );
-
-    buf.writeln(
-      'Use the "type" field to identify whether each stop is '
-      'food, dessert, activity, or another appropriate category.',
-    );
-
-    buf.writeln(
-      'Include a suggested time for each stop.',
-    );
-
-    buf.writeln();
-
-    buf.writeln(
-      'The final JSON must contain:',
-    );
-
-    buf.writeln('- summary');
-    buf.writeln('- stops');
-
-    buf.writeln(
-      'Each stop must contain:',
-    );
-
-    buf.writeln('- type');
-    buf.writeln('- name');
-    buf.writeln('- address');
-    buf.writeln('- suggested_time');
-    buf.writeln('- reason');
-
-    buf.writeln();
-
-    buf.writeln(
-      'Return JSON only.',
-    );
+    if (retryFeedback != null && retryFeedback.trim().isNotEmpty) {
+      buf.writeln();
+      buf.writeln('YOUR PREVIOUS ATTEMPT HAD PROBLEMS — FIX THEM:');
+      buf.writeln(retryFeedback);
+    }
 
     return buf.toString();
   }
@@ -597,44 +322,36 @@ class ItineraryAiService {
   static final Map<String, dynamic> _responseSchema = {
     'type': 'OBJECT',
     'properties': {
-      'summary': {
-        'type': 'STRING',
-      },
-      'stops': {
+      'plans': {
         'type': 'ARRAY',
         'items': {
           'type': 'OBJECT',
           'properties': {
-            'type': {
-              'type': 'STRING',
-            },
-            'name': {
-              'type': 'STRING',
-            },
-            'address': {
-              'type': 'STRING',
-            },
-            'suggested_time': {
-              'type': 'STRING',
-            },
-            'reason': {
-              'type': 'STRING',
+            'title': {'type': 'STRING'},
+            'theme': {'type': 'STRING'},
+            'summary': {'type': 'STRING'},
+            'area_id': {'type': 'STRING'},
+            'est_cost_per_person': {'type': 'NUMBER'},
+            'stops': {
+              'type': 'ARRAY',
+              'items': {
+                'type': 'OBJECT',
+                'properties': {
+                  'type': {'type': 'STRING'},
+                  'place_id': {'type': 'STRING'},
+                  'name': {'type': 'STRING'},
+                  'suggested_time': {'type': 'STRING'},
+                  'reason': {'type': 'STRING'},
+                },
+                'required': ['type', 'place_id', 'name', 'suggested_time', 'reason'],
+              },
             },
           },
-          'required': [
-            'type',
-            'name',
-            'address',
-            'suggested_time',
-            'reason',
-          ],
+          'required': ['title', 'theme', 'summary', 'area_id', 'est_cost_per_person', 'stops'],
         },
       },
     },
-    'required': [
-      'summary',
-      'stops',
-    ],
+    'required': ['plans'],
   };
 }
 
@@ -646,4 +363,3 @@ class ItineraryAiException implements Exception {
   @override
   String toString() => message;
 }
-

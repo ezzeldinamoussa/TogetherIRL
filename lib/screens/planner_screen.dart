@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../providers/group_provider.dart';
 import '../providers/hangout_provider.dart';
+import '../services/api_service.dart';
 import '../theme.dart';
+import '../widgets/itinerary_plans_view.dart';
 
 class PlannerScreen extends StatefulWidget {
   final ValueNotifier<Group?>? groupTrigger;
@@ -841,7 +846,7 @@ class _CreateHangoutSheetState extends State<_CreateHangoutSheet> {
   }
 }
 
-// ── Hangout detail + preferences ───────────────────────────────
+// ── Hangout detail + preferences + plans ───────────────────────
 class HangoutDetailScreen extends StatefulWidget {
   final Map<String, dynamic> hangout;
   final Group group;
@@ -857,6 +862,12 @@ class HangoutDetailScreen extends StatefulWidget {
 }
 
 class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
+  // Live copy of the hangout (status / itinerary_status change on the server)
+  late Map<String, dynamic> _hangout;
+  Map<String, dynamic>? _itinerary;
+  Timer? _pollTimer;
+  bool _selecting = false;
+
   // Preferences form state
   double _budget = 25;
   final Set<String> _activities = {};
@@ -866,36 +877,158 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
   bool _submitted = false;
   String? _error;
 
+  // Starting location (soft preference)
+  Map<String, dynamic> _savedLocations = {};
+  bool _loadingLocations = true;
+  String? _locationSource; // home | school | work | current | manual
+  final _manualZipController = TextEditingController();
+  double? _currentLat;
+  double? _currentLng;
+  bool _locating = false;
+  String? _locationError;
+
   static const double _minBudget = 25;
   static const double _maxBudget = 200;
 
   static const _activityOptions = [
-  'Coffee & Brunch',
-  'Food',
-  'Dessert',
-  'Entertainment',
-  'Outdoors',
-  'Arts & Culture',
-  'Shopping',
-];
+    'Coffee & Brunch',
+    'Food',
+    'Dessert',
+    'Entertainment',
+    'Outdoors',
+    'Arts & Culture',
+    'Shopping',
+  ];
 
   static const _foodOptions = [
-    'Italian', 'French', 'Mexican', 'Latin American', 'Japanese', 'Chinese', 'Vietnamese','Korean', 'Thai', 'American', 'Mediterranean', 'Greek', 'Middle Eastern',
-    'Indian', 'No Preference'
+    'Italian', 'French', 'Mexican', 'Latin American', 'Japanese', 'Chinese',
+    'Vietnamese', 'Korean', 'Thai', 'American', 'Mediterranean', 'Greek',
+    'Middle Eastern', 'Indian', 'No Preference'
   ];
+
+  String get _status => _hangout['status'] as String? ?? '';
+  String get _itStatus => _hangout['itinerary_status'] as String? ?? 'idle';
+  bool get _isOrganizer =>
+      Supabase.instance.client.auth.currentUser?.id == _hangout['created_by'];
+
+  @override
+  void initState() {
+    super.initState();
+    _hangout = Map<String, dynamic>.from(widget.hangout);
+    _loadSavedLocations();
+    if (_status != 'collecting_preferences') _loadItinerary();
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _poll());
+  }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _notesController.dispose();
+    _manualZipController.dispose();
     super.dispose();
   }
 
+  // ── Polling ──────────────────────────────────────────────────
+  Future<void> _poll() async {
+    if (!mounted) return;
+    final waiting =
+        (_status == 'collecting_preferences' && _submitted) || _itStatus == 'generating';
+    if (!waiting) return;
+    await _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final h = await ApiService.instance.getHangout(_hangout['id'] as String);
+      if (!mounted) return;
+      setState(() => _hangout = {..._hangout, ...h});
+      if (_status != 'collecting_preferences') await _loadItinerary();
+    } catch (_) {}
+  }
+
+  Future<void> _loadItinerary() async {
+    try {
+      final it = await ApiService.instance.getItinerary(_hangout['id'] as String);
+      if (!mounted) return;
+      setState(() {
+        _itinerary = it;
+        _hangout = {
+          ..._hangout,
+          'itinerary_status': it['itinerary_status'] ?? _itStatus,
+        };
+      });
+    } catch (_) {}
+  }
+
+  // ── Saved locations (from the profile) ───────────────────────
+  Future<void> _loadSavedLocations() async {
+    try {
+      final profile = await ApiService.instance.getMyProfile();
+      final locs = (profile['locations'] as Map?)?.cast<String, dynamic>() ?? {};
+      if (!mounted) return;
+      setState(() {
+        _savedLocations = locs;
+        for (final k in ['home', 'school', 'work']) {
+          if (_locationSource == null && locs[k] != null) _locationSource = k;
+        }
+        _loadingLocations = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingLocations = false);
+    }
+  }
+
+  void _pickSource(String source) {
+    setState(() {
+      _locationSource = source;
+      _locationError = null;
+    });
+    if (source == 'current' && _currentLat == null) _captureCurrentLocation();
+  }
+
+  Future<void> _captureCurrentLocation() async {
+    setState(() {
+      _locating = true;
+      _locationError = null;
+    });
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        setState(() => _locationError = 'Location services are turned off on this device.');
+        return;
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+        setState(() => _locationError = 'Location permission was denied.');
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      setState(() {
+        _currentLat = pos.latitude;
+        _currentLng = pos.longitude;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _locationError = 'Could not get your location. Try again or use a ZIP code.');
+      }
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  // ── Actions ──────────────────────────────────────────────────
   Future<void> _deleteHangout() async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete Hangout?'),
-        content: const Text('This will permanently delete this hangout and all preferences. This cannot be undone.'),
+        content: const Text(
+            'This will permanently delete this hangout and all preferences. This cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           TextButton(
@@ -907,45 +1040,93 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
     );
     if (confirm != true) return;
     try {
-      await context.read<HangoutProvider>().deleteHangout(
-          widget.hangout['id'] as String, widget.group.id);
+      await context
+          .read<HangoutProvider>()
+          .deleteHangout(widget.hangout['id'] as String, widget.group.id);
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
   Future<void> _submit() async {
-    setState(() { _submitting = true; _error = null; });
+    // Validate starting location first
+    final source = _locationSource;
+    if (source == null) {
+      setState(() => _error = 'Choose where you\'re starting from.');
+      return;
+    }
+    if (source == 'manual' && !RegExp(r'^\d{5}$').hasMatch(_manualZipController.text.trim())) {
+      setState(() => _error = 'Enter a valid 5-digit ZIP code.');
+      return;
+    }
+    if (source == 'current' && (_currentLat == null || _currentLng == null)) {
+      setState(() => _error = 'Share your current location, or pick another starting point.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
     try {
       final prefs = <String, dynamic>{
         'budget_range': _budget.round(),
+        'location_source': source,
+        if (source == 'manual') 'location_zip': _manualZipController.text.trim(),
+        if (source == 'current') 'location_lat': _currentLat,
+        if (source == 'current') 'location_lng': _currentLng,
         if (_activities.isNotEmpty) 'activity_types': _activities.toList(),
         if (_foods.isNotEmpty) 'food_preferences': _foods.toList(),
-        if (_notesController.text.trim().isNotEmpty)
-          'notes': _notesController.text.trim(),
-};
+        if (_notesController.text.trim().isNotEmpty) 'notes': _notesController.text.trim(),
+      };
       await context
           .read<HangoutProvider>()
-          .submitPreferences(
-              widget.hangout['id'] as String, widget.group.id, prefs);
+          .submitPreferences(widget.hangout['id'] as String, widget.group.id, prefs);
+      if (!mounted) return;
       setState(() => _submitted = true);
+      await _refresh(); // picks up itinerary_status if we were the last to respond
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _submitting = false);
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
+  Future<void> _selectPlan(int index) async {
+    setState(() => _selecting = true);
+    try {
+      await ApiService.instance.selectItineraryPlan(_hangout['id'] as String, index);
+      await _refresh();
+      if (mounted) context.read<HangoutProvider>().loadHangouts(widget.group.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _selecting = false);
+    }
+  }
+
+  Future<void> _regenerate() async {
+    try {
+      await ApiService.instance.generateItinerary(_hangout['id'] as String);
+      if (mounted) setState(() => _hangout = {..._hangout, 'itinerary_status': 'generating'});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  // ── Build ────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final hangout = widget.hangout;
-    final status = hangout['status'] as String? ?? '';
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(hangout['title'] ?? 'Hangout'),
+        title: Text(_hangout['title'] ?? 'Hangout'),
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -957,160 +1138,300 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ── Status banner ──────────────────────────────────────
-          _StatusBanner(status: status),
+          _StatusBanner(status: _status),
           const SizedBox(height: 20),
+          if (_status == 'collecting_preferences')
+            ..._collectingSection()
+          else
+            ..._plansSection(),
+        ],
+      ),
+    );
+  }
 
-          // ── Preferences form ───────────────────────────────────
-          if (status == 'collecting_preferences') ...[
-            if (_submitted)
-              _SuccessBanner(onEdit: () => setState(() => _submitted = false))
-            else ...[
-              const Text('Your Preferences',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              const Text(
-                'Tell the group what you\'re feeling.',
-                style: TextStyle(color: AppTheme.mutedForeground),
-              ),
-              const SizedBox(height: 20),
+  List<Widget> _plansSection() {
+    if (_itStatus == 'generating') return const [PlansBuildingCard()];
+    return [
+      ItineraryPlansView(
+        itinerary: _itinerary,
+        itineraryStatus: _itStatus,
+        isOrganizer: _isOrganizer,
+        selecting: _selecting,
+        onSelect: _selectPlan,
+        onRegenerate: _regenerate,
+      ),
+    ];
+  }
 
-              // Budget per person
-              const Text(
-                'Budget per person',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'For the entire hangout',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.mutedForeground,
-                ),
-              ),
-              const SizedBox(height: 8),
+  List<Widget> _collectingSection() {
+    if (_submitted) {
+      return [
+        _SuccessBanner(onEdit: () => setState(() => _submitted = false)),
+        if (_itStatus == 'generating') ...[
+          const SizedBox(height: 16),
+          const PlansBuildingCard(),
+        ],
+        if (_itStatus == 'failed') ...[
+          const SizedBox(height: 16),
+          ItineraryFailedCard(isOrganizer: _isOrganizer, onRetry: _regenerate),
+        ],
+      ];
+    }
 
-              Center(
-                child: Text(
-                  '\$${_budget.round()}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primary,
-                  ),
-                ),
-              ),
+    return [
+      const Text('Your Preferences',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      const Text(
+        'Tell the group what you\'re feeling.',
+        style: TextStyle(color: AppTheme.mutedForeground),
+      ),
+      const SizedBox(height: 20),
 
-              Slider(
-                value: _budget,
-                min: _minBudget,
-                max: _maxBudget,
-                divisions: 35,
-                label: '\$${_budget.round()}',
-                activeColor: AppTheme.primary,
-                onChanged: (value) {
-                  setState(() => _budget = value);
-                },
-              ),
+      // ── Starting location ──
+      _buildLocationPicker(),
+      const SizedBox(height: 20),
 
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '\$25',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.mutedForeground,
-                    ),
-                  ),
-                  Text(
-                    '\$200+',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.mutedForeground,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
+      // ── Budget ──
+      const Text('Budget per person', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 4),
+      const Text('For the entire hangout',
+          style: TextStyle(fontSize: 12, color: AppTheme.mutedForeground)),
+      const SizedBox(height: 8),
+      Center(
+        child: Text(
+          '\$${_budget.round()}',
+          style: const TextStyle(
+              fontSize: 24, fontWeight: FontWeight.w700, color: AppTheme.primary),
+        ),
+      ),
+      Slider(
+        value: _budget,
+        min: _minBudget,
+        max: _maxBudget,
+        divisions: 35,
+        label: '\$${_budget.round()}',
+        activeColor: AppTheme.primary,
+        onChanged: (value) => setState(() => _budget = value),
+      ),
+      const Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('\$25', style: TextStyle(fontSize: 12, color: AppTheme.mutedForeground)),
+          Text('\$200+', style: TextStyle(fontSize: 12, color: AppTheme.mutedForeground)),
+        ],
+      ),
+      const SizedBox(height: 20),
 
-              // Activity types
-              _ChipSelector(
-                title: 'Activity Types',
-                options: _activityOptions,
-                selected: _activities,
-                onToggle: (v) => setState(() =>
-                    _activities.contains(v)
-                        ? _activities.remove(v)
-                        : _activities.add(v)),
-              ),
-              const SizedBox(height: 20),
+      _ChipSelector(
+        title: 'Activity Types',
+        options: _activityOptions,
+        selected: _activities,
+        onToggle: (v) => setState(
+            () => _activities.contains(v) ? _activities.remove(v) : _activities.add(v)),
+      ),
+      const SizedBox(height: 20),
 
-              // Food preferences
-              _ChipSelector(
-                title: 'Food Preferences',
-                options: _foodOptions,
-                selected: _foods,
-                onToggle: (v) => setState(() =>
-                    _foods.contains(v)
-                        ? _foods.remove(v)
-                        : _foods.add(v)),
-              ),
-              const SizedBox(height: 20),
+      _ChipSelector(
+        title: 'Food Preferences',
+        options: _foodOptions,
+        selected: _foods,
+        onToggle: (v) =>
+            setState(() => _foods.contains(v) ? _foods.remove(v) : _foods.add(v)),
+      ),
+      const SizedBox(height: 20),
 
-              // Notes
-              const Text('Notes (optional)',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Anywhere but that Thai place please...',
-                ),
-              ),
+      const Text('Notes (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _notesController,
+        maxLines: 3,
+        decoration: const InputDecoration(hintText: 'Anywhere but that Thai place please...'),
+      ),
 
-              if (_error != null) ...[
-                const SizedBox(height: 10),
-                Text(_error!,
-                    style: const TextStyle(
-                        color: Colors.red, fontSize: 13)),
-              ],
-              const SizedBox(height: 24),
+      if (_error != null) ...[
+        const SizedBox(height: 10),
+        Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+      ],
+      const SizedBox(height: 24),
 
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _submitting ? null : _submit,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    backgroundColor: AppTheme.primary,
-                  ),
-                  child: _submitting
-                      ? const SizedBox(
-                          height: 20, width: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Text('Submit Preferences',
-                          style: TextStyle(fontSize: 16)),
-                ),
-              ),
-            ],
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.secondary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'Preferences are locked once planning begins.',
-                style: TextStyle(color: AppTheme.mutedForeground),
+      SizedBox(
+        width: double.infinity,
+        child: FilledButton(
+          onPressed: _submitting ? null : _submit,
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            backgroundColor: AppTheme.primary,
+          ),
+          child: _submitting
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('Submit Preferences', style: TextStyle(fontSize: 16)),
+        ),
+      ),
+    ];
+  }
+
+  // ── Starting-location picker ─────────────────────────────────
+  Widget _buildLocationPicker() {
+    const options = [
+      ('home', 'Home', Icons.home_outlined),
+      ('school', 'School', Icons.school_outlined),
+      ('work', 'Work', Icons.work_outline),
+      ('current', 'Current location', Icons.my_location),
+      ('manual', 'Other ZIP', Icons.pin_drop_outlined),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Where are you starting from?',
+            style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text('We\'ll look for places that work for everyone\'s starting points.',
+            style: TextStyle(fontSize: 12, color: AppTheme.mutedForeground)),
+        const SizedBox(height: 10),
+        if (_loadingLocations)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: SizedBox(
+                height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options.map((o) {
+              final key = o.$1;
+              final isSaved = ['home', 'school', 'work'].contains(key);
+              final saved = _savedLocations[key] as Map?;
+              final disabled = isSaved && saved == null;
+              return _LocationChip(
+                icon: o.$3,
+                label: o.$2,
+                subtitle: saved?['zipcode']?.toString(),
+                selected: _locationSource == key,
+                disabled: disabled,
+                onTap: disabled ? null : () => _pickSource(key),
+              );
+            }).toList(),
+          ),
+        if (!_loadingLocations &&
+            ['home', 'school', 'work'].any((k) => _savedLocations[k] == null)) ...[
+          const SizedBox(height: 6),
+          const Text(
+            'Greyed-out places aren\'t saved yet — add them in your Profile.',
+            style: TextStyle(fontSize: 11, color: AppTheme.mutedForeground),
+          ),
+        ],
+        if (_locationSource == 'manual') ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: 160,
+            child: TextField(
+              controller: _manualZipController,
+              keyboardType: TextInputType.number,
+              maxLength: 5,
+              decoration: const InputDecoration(
+                labelText: 'ZIP code',
+                hintText: '10001',
+                counterText: '',
               ),
             ),
-          ],
+          ),
         ],
+        if (_locationSource == 'current') ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (_locating)
+                const SizedBox(
+                    height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                Icon(
+                  _currentLat != null ? Icons.check_circle : Icons.location_off_outlined,
+                  size: 18,
+                  color: _currentLat != null ? AppTheme.green : AppTheme.mutedForeground,
+                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _locating
+                      ? 'Getting your location…'
+                      : _currentLat != null
+                          ? 'Location captured'
+                          : 'Location not shared yet',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              if (!_locating)
+                TextButton(
+                  onPressed: _captureCurrentLocation,
+                  child: Text(_currentLat != null ? 'Refresh' : 'Share'),
+                ),
+            ],
+          ),
+          if (_locationError != null)
+            Text(_locationError!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+        ],
+      ],
+    );
+  }
+}
+
+// ── Starting-location chip ─────────────────────────────────────
+class _LocationChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? subtitle;
+  final bool selected;
+  final bool disabled;
+  final VoidCallback? onTap;
+
+  const _LocationChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.disabled,
+    this.subtitle,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = disabled
+        ? AppTheme.mutedForeground.withValues(alpha: 0.5)
+        : selected
+            ? AppTheme.primary
+            : const Color(0xFF0F172A);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.secondary,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppTheme.primary : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: fg),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: fg)),
+            if (subtitle != null && !disabled) ...[
+              const SizedBox(width: 6),
+              Text(subtitle!,
+                  style: const TextStyle(fontSize: 11, color: AppTheme.mutedForeground)),
+            ],
+          ],
+        ),
       ),
     );
   }

@@ -39,6 +39,8 @@ class ApiService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  
+
   // ── Groups ────────────────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> getMyGroups() async {
@@ -88,6 +90,32 @@ class ApiService {
 
   // ── Hangouts ──────────────────────────────────────────────────
 
+    Future<Map<String, dynamic>> getItinerary(String hangoutId) async {
+    final res = await http.get(
+      Uri.parse('$_base/api/hangouts/$hangoutId/itinerary'),
+      headers: await _headers,
+    );
+    _check(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<void> generateItinerary(String hangoutId) async {
+    final res = await http.post(
+      Uri.parse('$_base/api/hangouts/$hangoutId/itinerary/generate'),
+      headers: await _headers,
+    );
+    _check(res);
+  }
+
+  Future<void> selectItineraryPlan(String hangoutId, int planIndex) async {
+    final res = await http.post(
+      Uri.parse('$_base/api/hangouts/$hangoutId/itinerary/select'),
+      headers: await _headers,
+      body: jsonEncode({'plan_index': planIndex}),
+    );
+    _check(res);
+  }
+  
   Future<List<Map<String, dynamic>>> getGroupHangouts(String groupId) async {
     final res = await http.get(
       Uri.parse('$_base/api/hangouts/group/$groupId'),

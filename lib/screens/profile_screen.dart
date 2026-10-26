@@ -15,7 +15,9 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _bioController = TextEditingController();
-  final _zipCodeController = TextEditingController();
+  final _homeZipController = TextEditingController();
+  final _schoolZipController = TextEditingController();
+  final _workZipController = TextEditingController();
   final Set<String> _dietaryRestrictions = {};
   double _maxDistance = 10;
 
@@ -44,7 +46,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _bioController.dispose();
-    _zipCodeController.dispose();
+    _homeZipController.dispose();
+    _schoolZipController.dispose();
+    _workZipController.dispose();
     super.dispose();
   }
 
@@ -53,7 +57,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final profile = await ApiService.instance.getMyProfile();
       _nameController.text = profile['display_name'] as String? ?? '';
       _bioController.text = profile['bio'] as String? ?? '';
-      _zipCodeController.text = profile['zipcode'] as String? ?? '';
+      final locs = (profile['locations'] as Map?)?.cast<String, dynamic>() ?? {};
+      String zipOf(String label) =>
+          ((locs[label] as Map?)?['zipcode'] as String?) ?? '';
+      _homeZipController.text = zipOf('home').isNotEmpty
+          ? zipOf('home')
+          : (profile['zipcode'] as String? ?? '');
+      _schoolZipController.text = zipOf('school');
+      _workZipController.text = zipOf('work');
       _maxDistance =
           ((profile['max_travel_distance_km'] as num?)?.toDouble()) ?? 10;
       final restrictions = profile['dietary_restrictions'] as List? ?? [];
@@ -70,7 +81,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'bio': _bioController.text.trim(),
         'dietary_restrictions': _dietaryRestrictions.toList(),
         'max_travel_distance_km': _maxDistance.round(),
-        'zipcode': _zipCodeController.text.trim(),
+          'locations': {
+          'home': _homeZipController.text.trim(),
+          'school': _schoolZipController.text.trim(),
+          'work': _workZipController.text.trim(),
+        },
       });
       setState(() { _success = 'Profile saved!'; _editMode = false; });
     } catch (e) {
@@ -417,53 +432,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Travel Distance',
                     icon: Icons.place_outlined,
                     subtitle:
-                        'Max distance from home for a hangout',
-                    trailing: SizedBox(
-                      width: 95,
-                      child: TextField(
-                        controller: _zipCodeController,
-                        enabled: _editMode,
-                        keyboardType: TextInputType.number,
-                        maxLength: 5,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
-                        ),
-                        decoration: InputDecoration(
-                          counterText: '',
-                          labelText: 'ZIP Code',
-                          labelStyle: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF64748B),
-                          ),
-                          hintText: '10001',
-                          hintStyle: const TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 12,
-                          ),
-                          filled: true,
-                          fillColor: const Color(0xFFF8FAFC),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2E8F0),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: Color(0xFF4F46E5),
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                        'Max distance from your starting point',
                     child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -543,8 +512,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
   ],
 ),
                   ),
+                ), 
+                                // ── Saved locations ────────────────────────────────
+                SliverToBoxAdapter(
+                  child: _Section(
+                    title: 'My Locations',
+                    icon: Icons.pin_drop_outlined,
+                    subtitle: 'Saved ZIP codes you can pick when planning',
+                    child: Column(
+                      children: [
+                        _ZipField(
+                          controller: _homeZipController,
+                          label: 'Home',
+                          icon: Icons.home_outlined,
+                          enabled: _editMode,
+                        ),
+                        const SizedBox(height: 12),
+                        _ZipField(
+                          controller: _schoolZipController,
+                          label: 'School',
+                          icon: Icons.school_outlined,
+                          enabled: _editMode,
+                        ),
+                        const SizedBox(height: 12),
+                        _ZipField(
+                          controller: _workZipController,
+                          label: 'Work',
+                          icon: Icons.work_outline,
+                          enabled: _editMode,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-
+                
                 // ── Feedback / save ────────────────────────────────
                 if (_editMode)
                   SliverToBoxAdapter(
@@ -951,6 +952,37 @@ class _AccountRow extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _ZipField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  final bool enabled;
+
+  const _ZipField({
+    required this.controller,
+    required this.label,
+    required this.icon,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: TextInputType.number,
+      maxLength: 5,
+      style: const TextStyle(fontSize: 15, color: Color(0xFF0F172A)),
+      decoration: InputDecoration(
+        counterText: '',
+        labelText: '$label ZIP code',
+        hintText: 'Optional',
+        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF94A3B8)),
+      ),
     );
   }
 }

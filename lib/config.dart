@@ -8,4 +8,5 @@ class AppConfig {
 
   // Base URL for the Dart backend server
   static const apiBaseUrl = 'http://localhost:3000';
+  static const geminiApiKey = 'API_KEY_HERE';
 }
