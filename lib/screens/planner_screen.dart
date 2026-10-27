@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
@@ -1023,6 +1022,7 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
 
   // ── Actions ──────────────────────────────────────────────────
   Future<void> _deleteHangout() async {
+    final provider = context.read<HangoutProvider>();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -1040,9 +1040,7 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
     );
     if (confirm != true) return;
     try {
-      await context
-          .read<HangoutProvider>()
-          .deleteHangout(widget.hangout['id'] as String, widget.group.id);
+      await provider.deleteHangout(widget.hangout['id'] as String, widget.group.id);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {

@@ -7,11 +7,18 @@ import 'distance_scoring.dart';
 /// The API key and model are injected (the backend passes Env values), so this
 /// file no longer depends on the Flutter app's AppConfig.
 class ItineraryAiService {
+  // Ordered most-likely-to-succeed first. A model that fails by TIMING OUT
+  // costs the full timeout before we fall through, so a dud ahead of a good
+  // model is expensive. Measured over two runs:
+  //   3.5-flash       succeeded both times (6.5s, 21s)
+  //   3.5-flash-lite  untested; lite tiers are usually fast with more quota
+  //   3.8-flash       flaky — once a cheap 503 (2s), once a 45s timeout
+  //   3.7-flash       timed out both times, so it goes last
   static const _defaultModels = [
-    'gemini-3.8-flash',
-    'gemini-3.7-flash',
     'gemini-3.5-flash',
     'gemini-3.5-flash-lite',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
   ];
 
   final String apiKey;
@@ -75,7 +82,9 @@ class ItineraryAiService {
                   },
                 }),
               )
-              .timeout(const Duration(seconds: 45));
+              // 35s, not 45: the slowest successful call we measured was 21s,
+              // so this keeps headroom while capping what a dud model costs.
+              .timeout(const Duration(seconds: 35));
 
           if (res.statusCode < 400) {
             print('Gemini model used: $model');

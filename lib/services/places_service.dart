@@ -155,29 +155,76 @@ class PlacesService {
     required int radiusMeters,
     required List<String> clauses,
   }) async {
-    // Five filters per request reduces sequential network round trips from 7 to 4
-    // for a typical 19-filter search, without sending all filters in one huge query.
-    const batchSize = 5;
+    // Overpass allows a small number of simultaneous queries per IP. 3 was
+    // tried and the server answered "429 Too Many Requests - all query workers
+    // are busy" on the very first batch of every search, so 2 it is.
+    const maxConcurrent = 2;
+
+    // Size batches from the filter count so the whole search fits in ONE
+    // concurrent round no matter how many filters a group's picks produce
+    // (5 for food-only, ~10 for three activities, more with cuisines).
+    // Capped so a filter-heavy group doesn't build one enormous query.
+    const maxBatchSize = 6;
+    final batchSize =
+        (clauses.length / maxConcurrent).ceil().clamp(1, maxBatchSize);
 
     final batches = <List<String>>[];
     for (var i = 0; i < clauses.length; i += batchSize) {
       batches.add(clauses.sublist(i, math.min(i + batchSize, clauses.length)));
     }
 
-    print('Splitting Overpass search into ${batches.length} smaller queries...');
+    print('Splitting ${clauses.length} filters into ${batches.length} '
+        'batch(es) of up to $batchSize, max $maxConcurrent in flight...');
 
     final allPlaces = <PlaceCandidate>[];
     final seenPlaces = <String>{};
 
-    for (var i = 0; i < batches.length; i++) {
-      print('Running Overpass batch ${i + 1}/${batches.length} '
-          'with ${batches[i].length} filters...');
+    // The batches are independent searches, so they run concurrently rather
+    // than one after another. A null entry means that batch's request failed.
+    final results = List<List<PlaceCandidate>?>.filled(batches.length, null);
 
+    for (var start = 0; start < batches.length; start += maxConcurrent) {
+      final inFlight = <Future<void>>[];
+      final end = math.min(start + maxConcurrent, batches.length);
+
+      for (var i = start; i < end; i++) {
+        final index = i;
+        print('Running Overpass batch ${index + 1}/${batches.length} '
+            'with ${batches[index].length} filters...');
+
+        inFlight.add(() async {
+          final places = await _runOverpassBatch(clauses: batches[index]);
+          print('Overpass batch ${index + 1}/${batches.length} -> '
+              '${places == null ? 'FAILED' : '${places.length} named places'}');
+          results[index] = places;
+        }());
+      }
+
+      await Future.wait(inFlight);
+    }
+
+    // A failed batch drops a whole category of places, which quietly yields
+    // plans that ignore what the group asked for (an "Outdoors" request coming
+    // back with no parks). The usual cause is Overpass refusing simultaneous
+    // queries, so retry the failures one at a time with nothing competing.
+    final failed = [
+      for (var i = 0; i < results.length; i++)
+        if (results[i] == null) i,
+    ];
+
+    for (final i in failed) {
+      print('Retrying failed Overpass batch ${i + 1}/${batches.length} '
+          'on its own...');
       final places = await _runOverpassBatch(clauses: batches[i]);
+      print('Overpass batch ${i + 1} serial retry -> '
+          '${places == null ? 'FAILED AGAIN' : '${places.length} named places'}');
+      results[i] = places;
+    }
 
-      print('Batch ${i + 1} returned ${places.length} named places');
-
-      for (final place in places) {
+    // Merged in batch order, not completion order, so which copy of a
+    // duplicated place wins does not depend on network timing.
+    for (final places in results) {
+      for (final place in places ?? const <PlaceCandidate>[]) {
         final key = '${place.name}|'
             '${place.location.lat.toStringAsFixed(6)}|'
             '${place.location.lng.toStringAsFixed(6)}';
@@ -185,7 +232,16 @@ class PlacesService {
       }
     }
 
-    print('Combined Overpass result: ${allPlaces.length} unique named places');
+    final stillFailed = results.where((r) => r == null).length;
+    if (stillFailed > 0) {
+      print('WARNING: $stillFailed of ${batches.length} Overpass batch(es) '
+          'failed even on retry. The place list is INCOMPLETE, so some '
+          'categories the group asked for may be missing from every plan.');
+    }
+
+    print('Combined Overpass result: ${allPlaces.length} unique named places '
+        'from ${batches.length} batch(es)'
+        '${failed.isEmpty ? '' : ', ${failed.length} needing a serial retry'}');
     return allPlaces;
   }
 
@@ -193,7 +249,11 @@ class PlacesService {
   // SINGLE OVERPASS REQUEST
   // ============================================================
 
-  Future<List<PlaceCandidate>> _runOverpassBatch({
+  /// Returns null when the request itself failed, and an empty list when it
+  /// succeeded but nothing matched. The caller needs that distinction: a failed
+  /// batch means a whole category of places is missing from the search, which
+  /// silently produces plans that ignore what the group asked for.
+  Future<List<PlaceCandidate>?> _runOverpassBatch({
     required List<String> clauses,
   }) async {
     final query = '''
@@ -245,7 +305,7 @@ out center qt;
 
             if (isTimeout) {
               print('Overpass batch failed after $maxRetries retries.');
-              return [];
+              return null;
             }
           }
 
@@ -260,20 +320,20 @@ out center qt;
         if (!retryable || attempt == maxRetries) {
           print('Overpass batch failed: ${response.statusCode}');
           print('Overpass response: ${response.body}');
-          return [];
+          return null;
         }
 
         print('Overpass returned ${response.statusCode}. Retrying in ${delaySeconds}s...');
         await Future.delayed(Duration(seconds: delaySeconds));
       } catch (e) {
         print('Overpass batch request error: $e');
-        if (attempt == maxRetries) return [];
+        if (attempt == maxRetries) return null;
         print('Retrying Overpass batch in ${delaySeconds}s...');
         await Future.delayed(Duration(seconds: delaySeconds));
       }
     }
 
-    return [];
+    return null;
   }
 
   // ============================================================

@@ -31,8 +31,6 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  DateTime _focusedDay = DateTime.now();
-  DateTime _selectedDay = DateTime.now();
   // date → list of {title, group}
   final Map<DateTime, List<Map<String, String>>> _events = {};
   bool _loadingEvents = false;
@@ -76,10 +74,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     if (mounted) setState(() { _events.addAll(events); _loadingEvents = false; });
-  }
-
-  List<Map<String, String>> _eventsForDay(DateTime day) {
-    return _events[DateTime(day.year, day.month, day.day)] ?? [];
   }
 
   /// Returns the next upcoming event across all days, or null.

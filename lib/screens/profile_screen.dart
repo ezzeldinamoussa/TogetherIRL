@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/group_provider.dart';
 import '../services/api_service.dart';
-import '../theme.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});

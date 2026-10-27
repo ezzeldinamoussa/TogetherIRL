@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/group_provider.dart';
-import '../providers/group_provider.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 
@@ -319,6 +318,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   }
 
   Future<void> _deleteGroup() async {
+    final provider = context.read<GroupProvider>();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -335,7 +335,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     );
     if (confirm != true) return;
     try {
-      await context.read<GroupProvider>().deleteGroup(widget.group.id);
+      await provider.deleteGroup(widget.group.id);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(

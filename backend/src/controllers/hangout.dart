@@ -669,24 +669,26 @@ class HangoutController {
           '${center.lat},${center.lng} | activities: $activityTypes | food: $foodPreferences');
 
       // ── Real places via Overpass ──
-      var rawPlaces = await _placesService.searchArea(
-        center: center,
-        radiusKm: radiusKm,
-        activityTypes: activityTypes,
-        foodPreferences: foodPreferences,
-      );
+      // A tighter first pass (2 km, widening only if it came up short) was
+      // tried and reverted: Overpass time turned out to be queue wait on the
+      // shared public endpoint rather than area scanning, so 2 km cost the same
+      // ~40s as 4 km and merely added a second wait whenever it had to widen.
+      Future<List<PlaceCandidate>> search(double km) => _placesService.searchArea(
+            center: center,
+            radiusKm: km,
+            activityTypes: activityTypes,
+            foodPreferences: foodPreferences,
+          );
+
+      var rawPlaces = await search(radiusKm);
 
       if (rawPlaces.isEmpty && radiusKm < 20) {
         final widerKm = math.min(20.0, radiusKm * 2);
         print('[$hangoutId] no places; retrying at ${widerKm.toStringAsFixed(1)} km');
-        rawPlaces = await _placesService.searchArea(
-          center: center,
-          radiusKm: widerKm,
-          activityTypes: activityTypes,
-          foodPreferences: foodPreferences,
-        );
+        rawPlaces = await search(widerKm);
       }
       if (rawPlaces.isEmpty) throw StateError('No real places found near the group');
+      print('[$hangoutId] using ${rawPlaces.length} place(s)');
 
       // ── Score + pick up to 3 neighbourhoods ──
       final scored = scorePlaces(places: rawPlaces, members: members);
@@ -780,6 +782,7 @@ class HangoutController {
         },
         filters: {'id': 'eq.$hangoutId'},
       );
+
 
       print('[$hangoutId] saved ${built.plans.length} plan(s): '
           '${built.plans.map((p) => '"${p['title']}"').join(', ')}');
