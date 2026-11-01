@@ -59,6 +59,12 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 # iOS
 ios/
 
+# Other generated platform folders
+linux/
+macos/
+windows/
+web/
+
 # Symbolication related
 app.*.symbols
 
@@ -68,6 +74,16 @@ app.*.symbols
 *.ex_
 *.ipa
 
+
+# CocoaPods
+macos/Pods/
+
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+*.xcuserstate
 
 .env
 signaling/.env

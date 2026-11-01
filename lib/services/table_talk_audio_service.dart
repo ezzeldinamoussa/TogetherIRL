@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show Helper;
 
 class TableTalkAudioService {
   Room? _room;
+  bool _isConnecting = false;
 
   Room? get room => _room;
 
@@ -32,44 +34,58 @@ class TableTalkAudioService {
     required String username,
     String roomName = 'tabletalk-room',
   }) async {
-    final granted = await requestMicrophonePermission();
-
-    if (!granted) {
-      throw Exception('Microphone permission denied');
+    // Guard against duplicate connect() calls (e.g. from widget rebuilds)
+    if (_isConnecting || _room != null) {
+      print('TableTalkAudioService: connect() called while already connected/connecting — skipping.');
+      return;
     }
+    _isConnecting = true;
 
-    final response = await http.post(
-      Uri.parse('https://togetherirl.onrender.com/token'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'username': username,
-        'room': roomName,
-      }),
-    );
+    try {
+      final granted = await requestMicrophonePermission();
 
-    if (response.statusCode != 200) {
-      throw Exception('Failed to get LiveKit token: ${response.body}');
+      if (!granted) {
+        throw Exception('Microphone permission denied');
+      }
+
+      final response = await http.post(
+        Uri.parse('https://togetherirl.onrender.com/token'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'username': username,
+          'room': roomName,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to get LiveKit token: ${response.body}');
+      }
+
+      final data = jsonDecode(response.body);
+
+      final liveKitUrl = data['url'];
+      final token = data['token'];
+
+      if (liveKitUrl == null || token == null) {
+        throw Exception('Missing LiveKit URL or token from backend.');
+      }
+
+      _room = Room();
+
+      await _room!.connect(
+        liveKitUrl,
+        token,
+      );
+
+      await _room!.localParticipant?.setMicrophoneEnabled(true);
+
+      // Force audio to route through speaker, not earpiece
+      await Helper.setSpeakerphoneOn(true);
+    } finally {
+      _isConnecting = false;
     }
-
-    final data = jsonDecode(response.body);
-
-    final liveKitUrl = data['url'];
-    final token = data['token'];
-
-    if (liveKitUrl == null || token == null) {
-      throw Exception('Missing LiveKit URL or token from backend.');
-    }
-
-    _room = Room();
-
-    await _room!.connect(
-      liveKitUrl,
-      token,
-    );
-
-    await _room!.localParticipant?.setMicrophoneEnabled(true);
   }
 
   Future<void> disconnect() async {
@@ -102,14 +118,20 @@ class TableTalkAudioService {
     final participant = room.remoteParticipants[participantIdentity];
     if (participant == null) return;
 
-    final shouldMute = volume <= 0.0;
-
     for (final publication in participant.audioTrackPublications) {
-      if (shouldMute) {
-        publication.unsubscribe();
-      } else {
+      final track = publication.track;
+
+      if (track == null) {
+        // Not subscribed yet — subscribe so we can control its volume
+        // once the track actually arrives.
         publication.subscribe();
+        continue;
       }
+
+      // RemoteAudioTrack itself doesn't expose setVolume — but it does
+      // expose the underlying flutter_webrtc MediaStreamTrack, and
+      // Helper.setVolume operates on that directly (native platforms only).
+      Helper.setVolume(volume, track.mediaStreamTrack);
     }
   }
 }
