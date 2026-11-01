@@ -55,6 +55,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (groups.isEmpty) return;
 
     setState(() => _loadingEvents = true);
+    final failedGroups = <String>[];
     final events = <DateTime, List<Map<String, String>>>{};
 
     for (final group in groups) {
@@ -70,10 +71,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
             {'title': h['title'] as String? ?? 'Hangout', 'group': '${group.emoji} ${group.name}'},
           ];
         }
-      } catch (_) {}
+      } catch (_) {
+        // One group failing should not empty the whole calendar, but it must
+        // not pass unmentioned either: a swallow here makes a broken request
+        // look like a group with nothing planned.
+        failedGroups.add(group.name);
+      }
     }
 
-    if (mounted) setState(() { _events.addAll(events); _loadingEvents = false; });
+    if (!mounted) return;
+    setState(() { _events.addAll(events); _loadingEvents = false; });
+
+    if (failedGroups.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          "Couldn't load the schedule for ${failedGroups.join(', ')}. "
+          'Some hangouts may be missing from the calendar.',
+        ),
+      ));
+    }
   }
 
   /// Returns the next upcoming event across all days, or null.
@@ -691,6 +707,26 @@ class _NotificationPanel extends StatelessWidget {
               const SizedBox(height: 16),
               if (p.loading)
                 const Center(child: CircularProgressIndicator())
+              else if (p.error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cloud_off_rounded,
+                          size: 18, color: AppTheme.mutedForeground),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(p.error!,
+                            style: const TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.mutedForeground)),
+                      ),
+                      TextButton(
+                          onPressed: p.loadPendingInvites,
+                          child: const Text('Retry')),
+                    ],
+                  ),
+                )
               else if (p.pendingInvites.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 32),

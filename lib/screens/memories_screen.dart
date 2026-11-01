@@ -569,6 +569,7 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
   bool _loading = true;
   bool _acting = false;
   String? _progressLabel;
+  String? _detailError;
 
   String get _myUserId =>
       Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -580,11 +581,19 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
   }
 
   Future<void> _loadDetail() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _detailError = null;
+    });
     try {
       _detail = await ApiService.instance
           .getPhotoSession(widget.session['id'] as String);
-    } catch (_) {}
+    } catch (e) {
+      // Swallowing this is what hid a 500 on this route: the card fell back
+      // to its empty state, so a failing request was indistinguishable from
+      // a collection nobody had responded to yet.
+      _detailError = "Couldn't load this collection.";
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -821,6 +830,24 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
             const Padding(
               padding: EdgeInsets.all(16),
               child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_detailError != null)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.cloud_off_rounded,
+                      size: 18, color: AppTheme.mutedForeground),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(_detailError!,
+                        style: const TextStyle(
+                            fontSize: 13, color: AppTheme.mutedForeground)),
+                  ),
+                  TextButton(
+                      onPressed: _loadDetail, child: const Text('Retry')),
+                ],
+              ),
             )
           else ...[
             // Member statuses

@@ -68,7 +68,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ((profile['max_travel_distance_km'] as num?)?.toDouble()) ?? 10;
       final restrictions = profile['dietary_restrictions'] as List? ?? [];
       _dietaryRestrictions.addAll(restrictions.cast<String>());
-    } catch (_) {}
+    } catch (e) {
+      // Swallowed, this read as a profile with nothing filled in, and saving
+      // over it would have written those blanks back.
+      _error = "Couldn't load your profile. Pull down to try again.";
+    }
     if (mounted) setState(() => _loading = false);
   }
 

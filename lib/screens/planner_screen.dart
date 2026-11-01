@@ -874,6 +874,7 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
   final _notesController = TextEditingController();
   bool _submitting = false;
   bool _submitted = false;
+  String? _loadError;
   String? _error;
 
   // Starting location (soft preference)
@@ -940,9 +941,16 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
     try {
       final h = await ApiService.instance.getHangout(_hangout['id'] as String);
       if (!mounted) return;
-      setState(() => _hangout = {..._hangout, ...h});
+      setState(() {
+        _hangout = {..._hangout, ...h};
+        _loadError = null;
+      });
       if (_status != 'collecting_preferences') await _loadItinerary();
-    } catch (_) {}
+    } catch (e) {
+      // Without this the screen kept showing stale data after the backend
+      // stopped answering, with nothing to say so.
+      if (mounted) setState(() => _loadError = "Couldn't refresh this hangout.");
+    }
   }
 
   Future<void> _loadItinerary() async {
@@ -955,8 +963,13 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
           ..._hangout,
           'itinerary_status': it['itinerary_status'] ?? _itStatus,
         };
+        _loadError = null;
       });
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadError = "Couldn't load the plans for this hangout.");
+      }
+    }
   }
 
   // ── Saved locations (from the profile) ───────────────────────
@@ -973,7 +986,13 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
         _loadingLocations = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loadingLocations = false);
+      if (mounted) {
+        setState(() {
+          _loadingLocations = false;
+          _locationError =
+              "Couldn't load your saved locations. Enter a ZIP code instead.";
+        });
+      }
     }
   }
 
@@ -1136,6 +1155,30 @@ class _HangoutDetailScreenState extends State<HangoutDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_loadError != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.cloud_off_rounded,
+                      size: 18, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(_loadError!,
+                        style: const TextStyle(
+                            fontSize: 13, color: Color(0xFFB91C1C))),
+                  ),
+                  TextButton(onPressed: _refresh, child: const Text('Retry')),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           _StatusBanner(status: _status),
           const SizedBox(height: 20),
           if (_status == 'collecting_preferences')

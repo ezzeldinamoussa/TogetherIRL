@@ -9,13 +9,19 @@ class InviteProvider extends ChangeNotifier {
 
   int get pendingCount => pendingInvites.length;
 
+  /// Set when the last load failed, so an empty list is not mistaken for
+  /// "no invites" by the dashboard.
+  String? error;
+
   Future<void> loadPendingInvites() async {
     loading = true;
     notifyListeners();
     try {
       pendingInvites = await ApiService.instance.getPendingInvites();
+      error = null;
     } catch (_) {
       pendingInvites = [];
+      error = "Couldn't check for new invites.";
     } finally {
       loading = false;
       notifyListeners();
