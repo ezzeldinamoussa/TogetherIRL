@@ -112,7 +112,7 @@ class ProfilesController {
     // ── 3. Profile row ──
     final profileData = <String, dynamic>{
       'id': userId,
-      'updated_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
 
     const allowedFields = [
@@ -154,7 +154,7 @@ class ProfilesController {
               'zipcode': resolvedZips[label],
               'lat': point.lat,
               'lng': point.lng,
-              'updated_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
             },
             upsert: true,
             onConflict: 'user_id,label',

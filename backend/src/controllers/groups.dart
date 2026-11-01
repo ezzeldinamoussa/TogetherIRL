@@ -238,7 +238,11 @@ class GroupsController {
 
       // Create the invite (expires in 7 days)
       final inviteId = _uuid.v4();
-      final expiresAt = DateTime.now().add(const Duration(days: 7)).toIso8601String();
+      // toUtc() before formatting: toIso8601String() on a local DateTime
+      // emits no offset, so Postgres stored it as UTC and the invite expired
+      // early by the server's offset from UTC.
+      final expiresAt =
+          DateTime.now().toUtc().add(const Duration(days: 7)).toIso8601String();
 
       await _db.insert('group_invites', {
         'id': inviteId,

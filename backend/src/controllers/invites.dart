@@ -25,7 +25,7 @@ class InvitesController {
   // ─────────────────────────────────────────
   Future<Response> _getPendingInvites(Request req) async {
     final userId = req.userId;
-    final now = DateTime.now().toIso8601String();
+    final now = DateTime.now().toUtc().toIso8601String();
 
     try {
       final invites = await _db.select(
@@ -84,7 +84,7 @@ class InvitesController {
       return _badRequest("'accept' must be true or false");
     }
     final accept = body['accept'] as bool;
-    final now = DateTime.now().toIso8601String();
+    final now = DateTime.now().toUtc().toIso8601String();
 
     try {
       // Verify invite belongs to this user, is pending, and not expired

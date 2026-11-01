@@ -1,0 +1,17 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - backend/**
+    - signaling/**
+  errors:
+    prefer_const_constructors: ignore
+    prefer_const_literals_to_create_immutables: ignore
+    deprecated_member_use: ignore
+    library_prefixes: ignore
+    curly_braces_in_flow_control_structures: ignore
+    prefer_final_fields: ignore
+    unused_element_parameter: ignore
+    # Kept on purpose: these prints trace the itinerary pipeline stages
+    # (geocode -> Overpass batches -> Gemini) while we tune its latency.
+    avoid_print: ignore

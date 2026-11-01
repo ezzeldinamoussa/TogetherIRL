@@ -316,14 +316,14 @@ class HangoutController {
         {
           'selected_plan_index': index,
           'selected_by': userId,
-          'selected_at': DateTime.now().toIso8601String(),
+          'selected_at': DateTime.now().toUtc().toIso8601String(),
         },
         filters: {'id': 'eq.${it['id']}'},
       );
 
       await _db.update(
         'hangout_plans',
-        {'status': 'confirmed', 'updated_at': DateTime.now().toIso8601String()},
+        {'status': 'confirmed', 'updated_at': DateTime.now().toUtc().toIso8601String()},
         filters: {'id': 'eq.$hangoutId'},
       );
 
@@ -359,7 +359,7 @@ class HangoutController {
 
       final updated = await _db.update(
         'hangout_plans',
-        {'status': newStatus, 'updated_at': DateTime.now().toIso8601String()},
+        {'status': newStatus, 'updated_at': DateTime.now().toUtc().toIso8601String()},
         filters: {'id': 'eq.$hangoutId'},
       );
 
@@ -424,7 +424,7 @@ class HangoutController {
     final prefData = <String, dynamic>{
       'hangout_plan_id': hangoutId,
       'user_id': userId,
-      'updated_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
       'location_source': loc.source,
       'location_zip': loc.zip,
       'location_lat': loc.lat,
@@ -585,7 +585,7 @@ class HangoutController {
       'hangout_plans',
       {
         'itinerary_status': 'generating',
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       },
       filters: {
         'id': 'eq.$hangoutId',
@@ -778,7 +778,7 @@ class HangoutController {
           // Regeneration keeps the current status; first run moves on to planning.
           'status': plan['status'] == 'collecting_preferences' ? 'planning' : plan['status'],
           'itinerary_status': 'ready',
-          'updated_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
         },
         filters: {'id': 'eq.$hangoutId'},
       );
@@ -797,7 +797,7 @@ class HangoutController {
     try {
       await _db.update(
         'hangout_plans',
-        {'itinerary_status': status, 'updated_at': DateTime.now().toIso8601String()},
+        {'itinerary_status': status, 'updated_at': DateTime.now().toUtc().toIso8601String()},
         filters: {'id': 'eq.$hangoutId'},
       );
     } catch (e) {

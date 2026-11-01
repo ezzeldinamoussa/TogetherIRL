@@ -40,8 +40,21 @@ build/
 # OS files
 Thumbs.db
 
-# Android 
-android/
+# Android — the gradle files, manifest and MainActivity are tracked; only
+# the generated and machine-specific parts are ignored. The whole folder
+# used to be ignored, which left fresh clones with no Android entry point.
+android/.gradle/
+android/.kotlin/
+android/app/.cxx/
+android/build/
+android/app/build/
+android/local.properties
+android/key.properties
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# Signing material — never commit these
+*.jks
+*.keystore
 
 # iOS
 ios/
@@ -55,10 +68,8 @@ app.*.symbols
 *.ex_
 *.ipa
 
-analysis_options.yaml
 
 .env
 signaling/.env
-test/
 __pycache__/
 signaling/__pycache__/
