@@ -278,12 +278,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
+          // hasScrollBody: false on all three — the default pins the child to
+          // exactly the leftover viewport with no way to scroll, and the
+          // empty state is taller than what the header and action cards
+          // leave behind, so it overflowed off the bottom.
           if (provider.loading)
             const SliverFillRemaining(
+              hasScrollBody: false,
               child: Center(child: CircularProgressIndicator()),
             )
           else if (provider.error != null)
             SliverFillRemaining(
+              hasScrollBody: false,
               child: _ErrorState(
                 message: provider.error!,
                 onRetry: provider.loadGroups,
@@ -291,6 +297,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             )
           else if (provider.groups.isEmpty)
             SliverFillRemaining(
+              hasScrollBody: false,
               child: _EmptyState(onCreateGroup: widget.onCreateGroup),
             )
           else

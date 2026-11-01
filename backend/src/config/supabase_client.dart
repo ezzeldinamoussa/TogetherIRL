@@ -66,13 +66,17 @@ class SupabaseClient {
   }) async {
     final headers = Map<String, String>.from(_headers);
     if (upsert) {
-  headers['Prefer'] = 'return=representation,resolution=merge-duplicates';
-  if (onConflict != null) {
-    headers['Prefer'] = '${headers['Prefer']},on_conflict=$onConflict';
-  }
-}
+      headers['Prefer'] = 'return=representation,resolution=merge-duplicates';
+    }
  
-    final uri = Uri.parse('$_baseUrl/$table');
+
+    // on_conflict is a query parameter, not a Prefer option. Sent as a
+    // Prefer value it was ignored, so PostgREST fell back to the primary
+    // key as the conflict target - a freshly generated id never collides,
+    // so every upsert became a plain insert and tripped the real unique
+    // constraint on the second write.
+    final uri = Uri.parse('$_baseUrl/$table'
+        '${upsert && onConflict != null ? '?on_conflict=$onConflict' : ''}');
     final res = await http.post(uri, headers: headers, body: jsonEncode(data));
     _checkStatus(res);
  
@@ -136,6 +140,11 @@ class SupabaseClient {
  
   // ─── STORAGE: Upload file ──────────────────────────────────
  
+  /// Uploads [bytes] and returns the object's path within [bucket].
+  ///
+  /// A path, not a URL: the buckets holding user content are private, so
+  /// there is no permanent public link to hand back. Call [createSignedUrls]
+  /// to turn stored paths into links a client can load.
   Future<String> uploadFile({
     required String bucket,
     required String path,
@@ -154,9 +163,45 @@ class SupabaseClient {
       body: bytes,
     );
     _checkStatus(res);
-    return '${Env.supabaseUrl}/storage/v1/object/public/$bucket/$path';
+    return path;
   }
  
+  // ─── STORAGE: Sign private objects ─────────────────────────
+
+  /// Time-limited links for objects in a private bucket, in the same order as
+  /// [paths]. An entry is null when that object could not be signed.
+  Future<List<String?>> createSignedUrls({
+    required String bucket,
+    required List<String> paths,
+    Duration expiresIn = const Duration(hours: 1),
+  }) async {
+    if (paths.isEmpty) return [];
+
+    final res = await http.post(
+      Uri.parse('${Env.supabaseUrl}/storage/v1/object/sign/$bucket'),
+      headers: _headers,
+      body: jsonEncode({
+        'expiresIn': expiresIn.inSeconds,
+        'paths': paths,
+      }),
+    );
+    _checkStatus(res);
+
+    // One entry per requested path, but keyed by path rather than ordered,
+    // and signedURL comes back relative to the storage endpoint.
+    final signedByPath = <String, String>{};
+    for (final entry in jsonDecode(res.body) as List) {
+      final row = entry as Map<String, dynamic>;
+      final signed = row['signedURL'] as String?;
+      final path = row['path'] as String?;
+      if (signed != null && path != null) {
+        signedByPath[path] = '${Env.supabaseUrl}/storage/v1$signed';
+      }
+    }
+
+    return [for (final p in paths) signedByPath[p]];
+  }
+
   void _checkStatus(http.Response res) {
     if (res.statusCode >= 400) {
       throw SupabaseException(res.statusCode, res.body);

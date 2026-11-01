@@ -157,13 +157,39 @@ class GroupsController {
       final groups = await _db.select('groups', filters: {'id': 'eq.$groupId'}, single: true);
       if (groups.isEmpty) return _notFound('Group not found');
 
+      // Same split as _getMyGroups: user_id → auth.users, so profiles cannot
+      // be embedded here. Left as an embed this route returned 500 for every
+      // single-group fetch.
       final members = await _db.select(
         'group_members',
         filters: {'group_id': 'eq.$groupId', 'status': 'eq.active'},
-        columns: 'user_id,role,status,joined_at,profiles(id,display_name,avatar_url,food_preferences,dietary_restrictions,budget_range)',
+        columns: 'user_id,role,status,joined_at',
       );
 
-      return _ok({...groups.first, 'members': members});
+      final userIds =
+          members.map((m) => m['user_id'] as String).toSet().toList();
+
+      final profilesById = <String, Map<String, dynamic>>{};
+      if (userIds.isNotEmpty) {
+        final profiles = await _db.select(
+          'profiles',
+          filters: {'id': 'in.(${userIds.join(',')})'},
+          // Only columns that exist on profiles: food_preferences and
+          // budget_range were never created, and naming them made the whole
+          // query fail with 42703.
+          columns: 'id,display_name,avatar_url,dietary_restrictions',
+        );
+        for (final p in profiles) {
+          profilesById[p['id'] as String] = p;
+        }
+      }
+
+      final enrichedMembers = members.map((m) {
+        final uid = m['user_id'] as String;
+        return {...m, 'profiles': profilesById[uid] ?? {}};
+      }).toList();
+
+      return _ok({...groups.first, 'members': enrichedMembers});
     } on SupabaseException catch (e) {
       return _serverError(e.body);
     }

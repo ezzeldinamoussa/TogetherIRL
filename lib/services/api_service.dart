@@ -222,6 +222,17 @@ class ApiService {
     return List<Map<String, dynamic>>.from(jsonDecode(res.body));
   }
 
+  /// Collections whose window has closed, newest first, each with every
+  /// photo uploaded to it. Collections nobody uploaded to are left out.
+  Future<List<Map<String, dynamic>>> getPastSessions() async {
+    final res = await http.get(
+      Uri.parse('$_base/api/photos/past'),
+      headers: await _headers,
+    );
+    _check(res);
+    return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+  }
+
   Future<Map<String, dynamic>> getPhotoSession(String sessionId) async {
     final res = await http.get(
       Uri.parse('$_base/api/photos/sessions/$sessionId'),
@@ -231,11 +242,19 @@ class ApiService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> createPhotoSession(String groupId, String title) async {
+  Future<Map<String, dynamic>> createPhotoSession(
+    String groupId,
+    String title, {
+    String? hangoutPlanId,
+  }) async {
     final res = await http.post(
       Uri.parse('$_base/api/photos/sessions'),
       headers: await _headers,
-      body: jsonEncode({'group_id': groupId, 'title': title}),
+      body: jsonEncode({
+        'group_id': groupId,
+        'title': title,
+        if (hangoutPlanId != null) 'hangout_plan_id': hangoutPlanId,
+      }),
     );
     _check(res);
     return jsonDecode(res.body) as Map<String, dynamic>;

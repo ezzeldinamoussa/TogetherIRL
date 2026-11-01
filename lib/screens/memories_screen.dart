@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -18,7 +19,9 @@ class MemoriesScreen extends StatefulWidget {
 
 class _MemoriesScreenState extends State<MemoriesScreen> {
   List<Map<String, dynamic>> _activeSessions = [];
+  List<Map<String, dynamic>> _pastSessions = [];
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -27,11 +30,22 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      _activeSessions = await ApiService.instance.getActiveSessions();
-    } catch (_) {
-      _activeSessions = [];
+      // Independent requests, so they go out together.
+      final results = await Future.wait([
+        ApiService.instance.getActiveSessions(),
+        ApiService.instance.getPastSessions(),
+      ]);
+      _activeSessions = results[0];
+      _pastSessions = results[1];
+    } catch (e) {
+      // Swallowing this made a dead backend look exactly like "no memories
+      // yet", which sent us hunting through the database for missing rows.
+      _error = 'Could not load your memories. Pull down to try again.';
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -143,6 +157,32 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                     ),
                   ),
 
+                  // ── Load failure ──────────────────────────────
+                  if (_error != null)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFECACA)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.cloud_off_rounded,
+                                size: 18, color: Color(0xFFDC2626)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(_error!,
+                                  style: const TextStyle(
+                                      fontSize: 13, color: Color(0xFFB91C1C))),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // ── Active sessions horizontal scroll ─────────
                   if (_activeSessions.isNotEmpty) ...[
                     const SliverToBoxAdapter(
@@ -169,9 +209,7 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                             padding: const EdgeInsets.only(right: 12),
                             child: _ActiveSessionChip(
                               session: _activeSessions[i],
-                              onTap: () {
-                                // Expand detail below; for now tap shows the full card
-                              },
+                              onTap: () {},
                             ),
                           ),
                         ),
@@ -204,9 +242,18 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                           Expanded(
                             child: _StatCard(
                               value: '${_activeSessions.length}',
-                              label: 'Collections',
+                              label: 'Active',
                               icon: Icons.photo_album_rounded,
                               iconColor: const Color(0xFF4F46E5),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _StatCard(
+                              value: '${_pastSessions.length}',
+                              label: 'Memories',
+                              icon: Icons.auto_awesome_rounded,
+                              iconColor: const Color(0xFF7C3AED),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -223,8 +270,38 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                     ),
                   ),
 
+                  // ── Past collections ──────────────────────────
+                  if (_pastSessions.isNotEmpty) ...[
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(16, 24, 16, 10),
+                        child: Text(
+                          'Your Memories',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child:
+                                _PastSessionCard(session: _pastSessions[i]),
+                          ),
+                          childCount: _pastSessions.length,
+                        ),
+                      ),
+                    ),
+                  ],
+
                   // ── Empty state or start prompt ───────────────
-                  if (_activeSessions.isEmpty)
+                  if (_activeSessions.isEmpty && _pastSessions.isEmpty)
                     SliverFillRemaining(
                       hasScrollBody: false,
                       child: Padding(
@@ -293,7 +370,8 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                 ],
               ),
       ),
-      floatingActionButton: _activeSessions.isNotEmpty
+      floatingActionButton: (_activeSessions.isNotEmpty ||
+              _pastSessions.isNotEmpty)
           ? FloatingActionButton.extended(
               onPressed: _showCreateSession,
               backgroundColor: const Color(0xFF4F46E5),
@@ -432,7 +510,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -444,29 +522,31 @@ class _StatCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      // Stacked, not a row: three of these sit side by side and a fixed
+      // 40px icon beside the text left the label no room to lay out.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: iconColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: iconColor, size: 20),
+            child: Icon(icon, color: iconColor, size: 18),
           ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w800)),
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppTheme.mutedForeground)),
-            ],
-          ),
+          const SizedBox(height: 10),
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.w800)),
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 12, color: AppTheme.mutedForeground)),
         ],
       ),
     );
@@ -488,6 +568,7 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
   Map<String, dynamic>? _detail;
   bool _loading = true;
   bool _acting = false;
+  String? _progressLabel;
 
   String get _myUserId =>
       Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -507,55 +588,114 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
     if (mounted) setState(() => _loading = false);
   }
 
+  // The window is a rolling 24 hours from when the collection was created
+  // (see _createSession), not midnight, so this counts down instead of
+  // naming a time of day that was never what the backend does.
   String _closesLabel() {
-    final closes =
-        DateTime.parse(widget.session['closes_at'] as String).toLocal();
-    return 'Closes ${closes.month}/${closes.day} at midnight';
+    try {
+      final closes =
+          DateTime.parse(widget.session['closes_at'] as String).toLocal();
+      final diff = closes.difference(DateTime.now());
+      if (diff.isNegative) return 'Closed';
+      if (diff.inHours > 0) return 'Closes in ${diff.inHours}h';
+      if (diff.inMinutes > 0) return 'Closes in ${diff.inMinutes}m';
+      return 'Closing now';
+    } catch (_) {
+      return 'Open';
+    }
   }
+
+  // Photos travel as base64 inside a JSON body, which inflates them by a
+  // third, so they are capped on the way out of the picker — a raw phone
+  // photo is several MB and a handful of them built one request large enough
+  // to stall on a phone connection.
+  static const _maxDimension = 1600.0;
+  static const _uploadChunkSize = 3;
 
   Future<void> _uploadPhotos() async {
     final picker = ImagePicker();
-    final images = await picker.pickMultiImage(imageQuality: 70);
+    final images = await picker.pickMultiImage(
+      imageQuality: 70,
+      maxWidth: _maxDimension,
+      maxHeight: _maxDimension,
+    );
     if (images.isEmpty) return;
 
-    setState(() => _acting = true);
+    setState(() {
+      _acting = true;
+      _progressLabel = 'Preparing ${images.length} photo(s)…';
+    });
+
+    var sent = 0;
     try {
-      final base64List = await Future.wait(
-        images.map((img) async {
-          final bytes = await img.readAsBytes();
-          return base64Encode(bytes);
-        }),
-      );
-      await ApiService.instance.uploadSessionPhotos(
-          widget.session['id'] as String, base64List);
+      // Sent in small batches instead of one request. The backend appends
+      // each batch, so a dropped connection costs only the batch in flight
+      // rather than the whole upload.
+      for (var start = 0; start < images.length; start += _uploadChunkSize) {
+        final end = math.min(start + _uploadChunkSize, images.length);
+
+        final base64Chunk = await Future.wait(
+          images
+              .sublist(start, end)
+              .map((img) async => base64Encode(await img.readAsBytes())),
+        );
+
+        await ApiService.instance.uploadSessionPhotos(
+            widget.session['id'] as String, base64Chunk);
+
+        sent = end;
+        if (mounted) {
+          setState(() =>
+              _progressLabel = 'Uploaded $sent of ${images.length}…');
+        }
+      }
       await _loadDetail();
       widget.onRefresh();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(sent == 0
+              ? 'Upload failed — nothing was saved. $e'
+              : 'Uploaded $sent of ${images.length}, then failed. '
+                  'Tap Upload Photos again to send the rest.'),
+        ));
       }
     }
-    if (mounted) setState(() => _acting = false);
+    if (mounted) {
+      setState(() {
+        _acting = false;
+        _progressLabel = null;
+      });
+    }
   }
 
   Future<void> _skip() async {
-    setState(() => _acting = true);
-    try {
-      await ApiService.instance
-          .skipPhotoSession(widget.session['id'] as String);
-      await _loadDetail();
-    } catch (_) {}
-    if (mounted) setState(() => _acting = false);
+    await _act(
+      () => ApiService.instance.skipPhotoSession(widget.session['id'] as String),
+      'Could not skip',
+    );
   }
 
   Future<void> _undo() async {
+    await _act(
+      () => ApiService.instance.undoPhotoAction(widget.session['id'] as String),
+      'Could not undo',
+    );
+  }
+
+  /// Runs [action], then reloads. A failure used to be swallowed, which left
+  /// the card showing the old state as though the tap had worked.
+  Future<void> _act(Future<void> Function() action, String failureMessage) async {
     setState(() => _acting = true);
     try {
-      await ApiService.instance
-          .undoPhotoAction(widget.session['id'] as String);
+      await action();
       await _loadDetail();
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$failureMessage: $e')));
+      }
+    }
     if (mounted) setState(() => _acting = false);
   }
 
@@ -609,6 +749,8 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
                   children: [
                     Expanded(
                       child: Text(title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
@@ -632,25 +774,33 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(groupEmoji,
-                              style: const TextStyle(fontSize: 11)),
-                          const SizedBox(width: 4),
-                          Text(groupName,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600)),
-                        ],
+                    // Flexible so a long group name shortens instead of
+                    // pushing the countdown off the right edge.
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(groupEmoji,
+                                style: const TextStyle(fontSize: 11)),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(groupName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -723,7 +873,23 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
             Padding(
               padding: const EdgeInsets.all(16),
               child: _acting
-                  ? const Center(child: CircularProgressIndicator())
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        if (_progressLabel != null) ...[
+                          const SizedBox(width: 12),
+                          Text(_progressLabel!,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.mutedForeground)),
+                        ],
+                      ],
+                    )
                   : myStatus == 'uploaded'
                       ? Row(
                           children: [
@@ -799,9 +965,13 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
                     mainAxisSpacing: 6,
                   ),
                   itemCount: allPhotos.length,
-                  itemBuilder: (context, i) => ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: NetImage(allPhotos[i]),
+                  itemBuilder: (context, i) => GestureDetector(
+                    onTap: () =>
+                        openPhotoViewer(context, allPhotos, i, title),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: NetImage(allPhotos[i]),
+                    ),
                   ),
                 ),
               ),
@@ -869,10 +1039,50 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
   bool _loading = false;
   String? _error;
 
+  // Hangouts belonging to the selected group. Linking a collection to one is
+  // optional, but it is what lets a finished memory say which hangout it came
+  // from instead of only naming the group.
+  List<Map<String, dynamic>> _hangouts = [];
+  String? _selectedHangoutId;
+  bool _loadingHangouts = false;
+
   @override
   void initState() {
     super.initState();
-    if (widget.groups.isNotEmpty) _selectedGroup = widget.groups.first;
+    if (widget.groups.isNotEmpty) {
+      _selectedGroup = widget.groups.first;
+      _loadHangouts();
+    }
+  }
+
+  Future<void> _loadHangouts() async {
+    final group = _selectedGroup;
+    if (group == null) return;
+    setState(() {
+      _loadingHangouts = true;
+      _hangouts = [];
+      _selectedHangoutId = null;
+    });
+    try {
+      final all = await ApiService.instance.getGroupHangouts(group.id);
+      // Only hangouts that have actually happened are worth attaching
+      // photos to, newest first.
+      _hangouts = all
+          .where((h) => h['status'] != 'cancelled')
+          .take(8)
+          .toList();
+    } catch (_) {
+      // A collection does not need a hangout, so a failure here just leaves
+      // the picker empty rather than blocking the whole sheet.
+      _hangouts = [];
+    }
+    if (mounted) setState(() => _loadingHangouts = false);
+  }
+
+  void _selectGroup(Group g) {
+    if (_selectedGroup?.id == g.id) return;
+    setState(() => _selectedGroup = g);
+    _loadHangouts();
   }
 
   @override
@@ -890,8 +1100,11 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      await ApiService.instance
-          .createPhotoSession(_selectedGroup!.id, title);
+      await ApiService.instance.createPhotoSession(
+        _selectedGroup!.id,
+        title,
+        hangoutPlanId: _selectedHangoutId,
+      );
       widget.onCreated();
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -942,7 +1155,7 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
-                      onTap: () => setState(() => _selectedGroup = g),
+                      onTap: () => _selectGroup(g),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 8),
@@ -965,6 +1178,59 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
                 }).toList(),
               ),
             ),
+            const SizedBox(height: 16),
+          ],
+
+          if (_loadingHangouts || _hangouts.isNotEmpty) ...[
+            const Text('Hangout (optional)',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            if (_loadingHangouts)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _hangouts.map((h) {
+                    final id = h['id'] as String;
+                    final sel = _selectedHangoutId == id;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        // Tapping the selected chip clears it, since the
+                        // link is optional and there is no other way out.
+                        onTap: () => setState(
+                            () => _selectedHangoutId = sel ? null : id),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color:
+                                sel ? AppTheme.primary : AppTheme.secondary,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            (h['title'] as String?) ?? 'Hangout',
+                            style: TextStyle(
+                                color: sel
+                                    ? Colors.white
+                                    : const Color(0xFF0F172A),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
             const SizedBox(height: 16),
           ],
 
@@ -1006,3 +1272,261 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
   }
 }
 
+
+// ── Full-screen photo viewer ───────────────────────────────────
+// Opens from any photo grid. Before this the grids were the only way to see
+// an uploaded photo, at thumbnail size.
+void openPhotoViewer(
+  BuildContext context,
+  List<String> photos,
+  int initialIndex,
+  String title,
+) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _PhotoViewer(
+        photos: photos,
+        initialIndex: initialIndex,
+        title: title,
+      ),
+    ),
+  );
+}
+
+class _PhotoViewer extends StatefulWidget {
+  final List<String> photos;
+  final int initialIndex;
+  final String title;
+
+  const _PhotoViewer({
+    required this.photos,
+    required this.initialIndex,
+    required this.title,
+  });
+
+  @override
+  State<_PhotoViewer> createState() => _PhotoViewerState();
+}
+
+class _PhotoViewerState extends State<_PhotoViewer> {
+  late final PageController _controller =
+      PageController(initialPage: widget.initialIndex);
+  late int _index = widget.initialIndex;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.title,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w700)),
+            Text('${_index + 1} of ${widget.photos.length}',
+                style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          ],
+        ),
+      ),
+      body: PageView.builder(
+        controller: _controller,
+        itemCount: widget.photos.length,
+        onPageChanged: (i) => setState(() => _index = i),
+        itemBuilder: (_, i) => InteractiveViewer(
+          maxScale: 4,
+          child: Center(
+            child: NetImage(widget.photos[i], fit: BoxFit.contain),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── A closed collection ────────────────────────────────────────
+// The finished memory. Everything here comes from GET /api/photos/past,
+// which is the only route that returns collections whose window has shut.
+class _PastSessionCard extends StatelessWidget {
+  final Map<String, dynamic> session;
+  const _PastSessionCard({required this.session});
+
+  static const _previewCount = 6;
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _dateLabel() {
+    try {
+      final closed = DateTime.parse(session['closes_at'] as String).toLocal();
+      return '${_months[closed.month - 1]} ${closed.day}, ${closed.year}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photos = (session['photos'] as List?)?.cast<String>() ?? const [];
+    final group = session['groups'] as Map<String, dynamic>? ?? {};
+    final hangout = session['hangout_plans'] as Map<String, dynamic>?;
+    final title = session['title'] as String? ?? 'Photo Collection';
+
+    final preview = photos.take(_previewCount).toList();
+    final hidden = photos.length - preview.length;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          // The group name gives way first; the date is a
+                          // fixed width and always worth showing in full.
+                          Flexible(
+                            child: Text(
+                              '${group['emoji'] ?? '🎉'} ${group['name'] ?? 'Group'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.mutedForeground),
+                            ),
+                          ),
+                          const Text('  ·  ',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.mutedForeground)),
+                          Text(_dateLabel(),
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.mutedForeground)),
+                        ],
+                      ),
+                      if (hangout != null && hangout['title'] is String) ...[
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            const Icon(Icons.event_rounded,
+                                size: 12, color: AppTheme.primary),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(hangout['title'] as String,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.primary)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.secondary,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.photo_library_rounded,
+                          size: 12, color: AppTheme.mutedForeground),
+                      const SizedBox(width: 4),
+                      Text('${photos.length}',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F172A))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
+              ),
+              itemCount: preview.length,
+              itemBuilder: (context, i) {
+                // The last preview tile carries the overflow count, and still
+                // opens the viewer at its own photo.
+                final isOverflowTile = hidden > 0 && i == preview.length - 1;
+                return GestureDetector(
+                  onTap: () => openPhotoViewer(context, photos, i, title),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        NetImage(preview[i]),
+                        if (isOverflowTile)
+                          Container(
+                            color: Colors.black.withOpacity(0.5),
+                            alignment: Alignment.center,
+                            child: Text('+$hidden',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800)),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

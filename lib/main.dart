@@ -5,7 +5,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config.dart';
 import 'theme.dart';
 import 'providers/bill_provider.dart';
-import 'providers/photo_provider.dart';
 import 'providers/group_provider.dart';
 import 'providers/hangout_provider.dart';
 import 'providers/invite_provider.dart';
@@ -34,7 +33,6 @@ class TogetherIRLApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BillProvider()),
-        ChangeNotifierProvider(create: (_) => PhotoProvider()),
         ChangeNotifierProvider(create: (_) => GroupProvider()),
         ChangeNotifierProvider(create: (_) => HangoutProvider()),
         ChangeNotifierProvider(create: (_) => InviteProvider()),
