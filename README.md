@@ -59,6 +59,17 @@ The app reaches the backend at `10.0.2.2:3000`, which is the Android
 emulator's alias for your machine. Running on a physical phone needs the
 backend deployed somewhere reachable — that hasn't been done yet.
 
+### Itinerary generation
+
+Generation takes about 50 seconds, most of it waiting in the queue at the
+public Overpass endpoint. It is not frozen. Overpass also returns 429 and 502
+intermittently; a failed batch retries on its own, and the backend logs a
+warning if the place list still came back incomplete. Watch the backend
+terminal — it logs each stage, which Gemini model answered, and the plan
+titles.
+
+Every member needs a starting location set, or generation fails with an error.
+
 ### TableTalk
 
 No local setup needed. The Python signaling service is already deployed at
@@ -69,6 +80,16 @@ setup steps are in this file's git history, before November 2026.
 Voice needs a real microphone. Two Android emulators on one machine share
 the host's single microphone, so test across two machines or two phones.
 The iOS Simulator has no microphone at all.
+
+### Memories
+
+Photos stay sealed until the collection's 24-hour window closes or every
+member has uploaded or skipped, whichever comes first. Before that you only
+see your own, so a photo that looks missing during testing is usually the gate
+working as intended.
+
+In a two-person group the gate opens as soon as both respond, so to see the
+sealed state you need one member to stay pending.
 
 ## Project layout
 
