@@ -238,29 +238,47 @@ class PhotosController {
           .where((m) => m['status'] != 'pending')
           .length;
 
-      // One signing round covers every photo in the session, rather than
-      // one request per member.
+      // The collection stays sealed until the window closes or everyone has
+      // responded, whichever comes first. The point of the feature is that
+      // the group sees the whole set at once rather than a trickle, so until
+      // then a member sees only their own photos.
+      final closesAt = DateTime.parse(session['closes_at'] as String);
+      final revealed = DateTime.now().isAfter(closesAt) ||
+          (total > 0 && responded == total);
+
+      // Only sign what this viewer may see: an unsigned path is not a link,
+      // so a withheld photo has no reachable URL at all.
       final signed = await _signMap([
         for (final m in memberStatuses)
-          ...((m['photo_urls'] as List?)?.cast<String>() ?? const <String>[]),
+          if (revealed || m['user_id'] == userId)
+            ...((m['photo_urls'] as List?)?.cast<String>() ?? const <String>[]),
       ]);
 
+      // Status stays visible either way, so the group can watch the count
+      // climb; it is the photos themselves that are withheld.
       final signedMembers = [
         for (final m in memberStatuses)
-          {...m, 'photo_urls': _applySigned(m['photo_urls'], signed)},
+          {
+            ...m,
+            'photo_urls': (revealed || m['user_id'] == userId)
+                ? _applySigned(m['photo_urls'], signed)
+                : const <String>[],
+          },
       ];
 
-      // Collect all uploaded photos
-      final allPhotos = signedMembers
-          .where((m) => m['status'] == 'uploaded')
-          .expand((m) => (m['photo_urls'] as List).cast<String>())
-          .toList();
+      final allPhotos = revealed
+          ? signedMembers
+              .where((m) => m['status'] == 'uploaded')
+              .expand((m) => (m['photo_urls'] as List).cast<String>())
+              .toList()
+          : const <String>[];
 
       return _ok({
         ...session,
         'members': signedMembers,
         'responded': responded,
         'total': total,
+        'revealed': revealed,
         'all_photos': allPhotos,
         'my_status': recordMap[userId]?['status'] ?? 'pending',
         'my_photos': _applySigned(recordMap[userId]?['photo_urls'], signed),

@@ -724,6 +724,10 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
         (detail?['members'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final allPhotos =
         (detail?['all_photos'] as List?)?.cast<String>() ?? [];
+    final myPhotos = (detail?['my_photos'] as List?)?.cast<String>() ?? [];
+    // Defaults to sealed: if the field is missing the safe answer is to show
+    // nothing rather than to leak the collection.
+    final revealed = detail?['revealed'] as bool? ?? false;
 
     return Container(
       decoration: BoxDecoration(
@@ -977,37 +981,69 @@ class _ActiveSessionCardState extends State<_ActiveSessionCard> {
                             ),
             ),
 
-            // Uploaded photos grid
-            if (allPhotos.isNotEmpty) ...[
+            // Before the reveal only your own photos come back, so the
+            // card shows those and explains what everyone is waiting for.
+            if (!revealed) ...[
               const Divider(height: 1),
               Padding(
-                padding: const EdgeInsets.all(12),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 6,
-                  ),
-                  itemCount: allPhotos.length,
-                  itemBuilder: (context, i) => GestureDetector(
-                    onTap: () =>
-                        openPhotoViewer(context, allPhotos, i, title),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: NetImage(allPhotos[i]),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_outline_rounded,
+                        size: 17, color: AppTheme.mutedForeground),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        'Everyone\'s photos unlock when all $total have '
+                        'responded, or when the window closes.',
+                        style: const TextStyle(
+                            fontSize: 13, color: AppTheme.mutedForeground),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
+              if (myPhotos.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text('Your photos (${myPhotos.length})',
+                      style: const TextStyle(
+                          fontSize: 12.5, fontWeight: FontWeight.w600)),
+                ),
+              if (myPhotos.isNotEmpty) _photoGrid(context, myPhotos, title),
+            ] else if (allPhotos.isNotEmpty) ...[
+              const Divider(height: 1),
+              _photoGrid(context, allPhotos, title),
             ],
           ],
         ],
       ),
     );
   }
+}
+
+// ── Shared photo grid ──────────────────────────────────────────
+Widget _photoGrid(BuildContext context, List<String> photos, String title) {
+  return Padding(
+    padding: const EdgeInsets.all(12),
+    child: GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 6,
+        mainAxisSpacing: 6,
+      ),
+      itemCount: photos.length,
+      itemBuilder: (context, i) => GestureDetector(
+        onTap: () => openPhotoViewer(context, photos, i, title),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: NetImage(photos[i]),
+        ),
+      ),
+    ),
+  );
 }
 
 // ── Status badge ───────────────────────────────────────────────
