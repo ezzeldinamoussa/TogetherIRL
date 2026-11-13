@@ -1,501 +1,116 @@
 # TogetherIRL
-CCNY Senior Design Project
-# TogetherIRL - TableTalk Setup Guide
 
-## Overview
-This guide explains how to set up and test the TableTalk audio feature locally.
+A mobile app for planning group hangouts: shared preferences, AI-generated
+itineraries from real nearby places, live group voice, bill splitting and
+shared photo albums.
 
-TableTalk currently uses:
-- Flutter frontend
-- FastAPI signaling backend
-- LiveKit for real-time audio communication
+CCNY Senior Design Project — CSC 59866 / 59867.
 
-## Recommended
-Create a `.env.example` file:
+## Stack
 
-LIVEKIT_URL=replace_me
-LIVEKIT_API_KEY=replace_me
-LIVEKIT_API_SECRET=replace_me
----
+| Part | Built with |
+|---|---|
+| Mobile app | Flutter / Dart 3, `provider` for state |
+| API backend | Dart with `shelf`, port 3000 |
+| Voice signaling | Python with FastAPI, deployed on Render |
+| Database, storage, auth | Supabase (Postgres, Storage, email/password auth) |
+| External services | Google Gemini, OpenStreetMap/Overpass, OCR.space, LiveKit Cloud, Zippopotam |
 
-# 1. Clone and Checkout Correct Branch
+## Running it locally
 
-Clone the repo:
+You need the Flutter SDK, the Dart SDK and Android Studio with an emulator.
+
+**1. Clone and install dependencies**
 
 ```bash
 git clone <repo-url>
-```
-
-Go into project:
-
-```bash
 cd TogetherIRL
-```
-
-Switch to the audio branch:
-
-```bash
-git checkout audio
-git pull
-```
-
----
-
-# 2. Install Required Software
-
-Make sure you have:
-
-- Git
-- Flutter SDK
-- Android Studio
-- Android Emulator
-- Python 3.x
-- VS Code (optional)
-
-Check installations:
-
-```bash
-flutter --version
-py --version
-```
-
----
-
-# 3. Flutter Setup
-
-From project root:
-
-```bash
 flutter pub get
+cd backend && dart pub get && cd ..
 ```
 
-If the Android folder is missing:
+**2. Create `backend/.env`**
+
+Not in git. Ask a teammate for the Supabase and OCR values:
+
+```
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+OCR_SPACE_API_KEY=...
+PORT=3000
+
+# Get your own free key at https://aistudio.google.com/apikey
+GEMINI_API_KEY=...
+```
+
+Use **your own** Gemini key. Free-tier quota is metered per project, so a
+shared key means a shared daily cap and generation starts failing for
+everyone once it runs out.
+
+**3. Run the backend, then the app**
 
 ```bash
-flutter create --platforms=android .
+cd backend && dart run server.dart    # leave this running
+flutter run                            # in a second terminal
 ```
 
-Check devices:
+The app reaches the backend at `10.0.2.2:3000`, which is the Android
+emulator's alias for your machine. Running on a physical phone needs the
+backend deployed somewhere reachable — that hasn't been done yet.
 
-```bash
-flutter devices
+### TableTalk
+
+No local setup needed. The Python signaling service is already deployed at
+`togetherirl.onrender.com` and the app points at it. You only need
+`signaling/` if you are changing or redeploying that service — the LiveKit
+setup steps are in this file's git history, before November 2026.
+
+Voice needs a real microphone. Two Android emulators on one machine share
+the host's single microphone, so test across two machines or two phones.
+The iOS Simulator has no microphone at all.
+
+## Project layout
+
+```
+lib/              Flutter app
+  screens/        one file per screen
+  services/       everything that talks outside the app
+  providers/      ChangeNotifier state, one per feature
+  widgets/        shared UI
+backend/          Dart API server
+  src/controllers/  one per feature
+  src/config/       env and the Supabase wrapper
+  src/middleware/   JWT auth
+signaling/        Python voice service
+android/          platform config — keep this in git
 ```
 
----
-
-# 4. Android Permissions
-
-Open:
-
-```bash
-android/app/src/main/AndroidManifest.xml
-```
-
-Make sure these permissions exist at the top:
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-```
-
-Example:
-
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <application
-        ...
-```
-
-Without microphone permission, TableTalk audio will fail.
-
----
-
-# 5. Python Backend Setup
-
-Go into signaling folder:
-
-```bash
-cd signaling
-```
-
-Install dependencies:
-
-```bash
-py -m pip install -r requirements.txt
-```
-
----
-
-# 6. LiveKit Environment Variables
-
-Inside the `signaling` folder, create a file called:
-
-```bash
-.env
-```
-
-Paste the LiveKit credentials provided privately by the team:
-
-```env
-LIVEKIT_URL=wss://your-livekit-project.livekit.cloud
-LIVEKIT_API_KEY=your_api_key
-LIVEKIT_API_SECRET=your_api_secret
-```
-
-IMPORTANT:
-- Do NOT commit this file.
-- Do NOT upload this to GitHub.
-- Share credentials privately only.
-
----
-
-# 7. Run Backend
-
-Still inside `signaling`:
-
-```bash
-py -m uvicorn main:socket_app --host 0.0.0.0 --port 8001 --reload
-```
-
-Expected output:
-
-```bash
-Uvicorn running on http://0.0.0.0:8001
-Application startup complete
-```
-
-Leave this terminal running.
-
----
-
-# 8. Run Frontend
-
-Open a NEW terminal.
-
-Go to project root:
-
-```bash
-cd TogetherIRL
-```
-
-Run:
-
-```bash
-flutter run
-```
-
-Or choose a specific emulator:
-
-```bash
-flutter run -d emulator-5554
-```
-
----
-
-# 9. Two Emulator Testing
-
-For testing multiple users locally:
-
-Launch emulator 1:
-
-```bash
-flutter emulators --launch Medium_Phone
-```
-
-Launch emulator 2:
-
-```bash
-flutter emulators --launch Pixel_10_Pro_Fold
-```
-
-Check devices:
-
-```bash
-flutter devices
-```
-
-Example output:
-
-```bash
-emulator-5554
-emulator-5556
-```
-
-Run app on emulator 1:
-
-```bash
-flutter run -d emulator-5554
-```
-
-Open NEW terminal.
-
-Run app on emulator 2:
-
-```bash
-flutter run -d emulator-5556 --no-pub
-```
-
----
-
-# 10. TableTalk Testing Steps
-
-Once both emulators are running:
-
-### Test Join
-- Open TableTalk tab
-- Press Join on emulator 1
-- Enter username
-- Press Join on emulator 2
-- Enter different username
-
-Expected:
-- both connect successfully
-- live participant count updates
-
----
-
-### Test Leave
-Press Leave on one emulator.
-
-Expected:
-- other emulator updates immediately
-- participant count decreases
-
----
-
-### Test Foreground / Background
-Move participants between:
-- Foreground
-- Background
-
-Expected:
-- UI updates correctly
-- participant grouping changes
-
----
-
-### Test Mute
-Press mute/unmute buttons.
-
-Expected:
-- participant audio subscription changes
-
----
-
-### Test Nudge
-- Join from both emulators
-- Mute one participant
-- Press the Nudge button on the muted participant card
-
-Expected:
-- target user receives vibration
-- snackbar notification appears:
-  "<username> wants to talk to you"
-
----
-# 11. Current Feature Status
-
-## Working
-✅ LiveKit room connection  
-✅ FastAPI token backend  
-✅ username-based joining  
-✅ real-time participant syncing  
-✅ join/leave updates  
-✅ foreground/background grouping UI  
-✅ mute/unmute logic  
-✅ nudge notifications (socket event + vibration/snackbar)
-✅ two-user local testing 
-
----
-
-## Not Fully Implemented Yet
-⚠ true per-user volume scaling  
-⚠ partial background volume reduction  
-⚠ spatial audio positioning  
-⚠ persistent user identities  
-
-Reason:
-Current Flutter LiveKit SDK does not expose easy remote participant volume control.
-
-Current sliders are primarily UI/state logic.
-
----
-
-# 12. Real Phone Testing
-
-For Android emulators, backend token URL should be:
-
-```dart
-http://10.0.2.2:8001/token
-```
-
-This works because emulator maps `10.0.2.2` to your computer.
-
----
-
-For REAL phones:
-
-Replace:
-
-```dart
-http://10.0.2.2:8001/token
-```
-
-with:
-
-```dart
-http://YOUR_COMPUTER_IP:8001/token
-```
-
-Example:
-
-```dart
-http://192.168.1.25:8001/token
-```
-
-Find your computer IP:
-
-Windows:
-
-```bash
-ipconfig
-```
-
-Look for:
-
-```bash
-IPv4 Address
-```
-
-Phone requirements:
-- same Wi-Fi network as laptop
-- backend running on laptop
-- firewall allows port 8001
-
----
-
-# 13. Troubleshooting
-
-## Microphone permission denied
-
-Fix:
-Settings → App Permissions → Microphone → Allow
-
----
-
-## Missing LiveKit URL or token
-
-Cause:
-`.env` missing or incorrect
-
-Fix:
-Check:
-
-```env
-LIVEKIT_URL
-LIVEKIT_API_KEY
-LIVEKIT_API_SECRET
-```
-
-Restart backend.
-
----
-
-## Emulator cannot reach backend
-
-Error example:
-
-```bash
-Network is unreachable
-```
-
-Fix:
-Restart emulator
-
-or:
-
-```bash
-adb -s emulator-5554 emu kill
-```
-
-Then relaunch.
-
----
-
-## flutter not recognized
-
-Fix:
-Install Flutter SDK and add to PATH
-
-Check:
-
-```bash
-flutter --version
-```
-
----
-
-## py not recognized
-
-Fix:
-Install Python with "Add Python to PATH"
-
-Check:
-
-```bash
-py --version
-```
-
----
-
-# 14. Security Note
-
-Never commit:
-
-```bash
-.env
-```
-
-Only commit:
-
-```bash
-.env.example
-```
-
-Example safe file:
-
-```env
-LIVEKIT_URL=replace_me
-LIVEKIT_API_KEY=replace_me
-LIVEKIT_API_SECRET=replace_me
-```
-
----
-
-# Quick Start Summary
-
-Backend:
-
-```bash
-cd signaling
-py -m pip install -r requirements.txt
-py -m uvicorn main:socket_app --host 0.0.0.0 --port 8001 --reload
-```
-
-Frontend:
-
-```bash
-flutter pub get
-flutter run
-```
-
-Two-device test:
-
-```bash
-flutter run -d emulator-5554
-flutter run -d emulator-5556 --no-pub
-```
+Useful entry points:
+
+| If you need to change | Look at |
+|---|---|
+| The backend URL | `lib/config.dart` — the only place it appears |
+| Any call to the backend | `lib/services/api_service.dart` |
+| Backend routes | `backend/server.dart` mounts every controller |
+| Authentication | `backend/src/middleware/auth_middleware.dart` |
+| Database schema | `backend/schema.sql` — **incomplete, see below** |
+| Itinerary generation | `lib/services/itinerary_ai_service.dart` and `places_service.dart` |
+
+## Branches
+
+| Branch | What it is |
+|---|---|
+| `main` | Production |
+| `test_main` | Integration branch under final testing, merges to `main` when it passes |
+| `audio` | TableTalk development. Merged into `test_main`; can be deleted afterwards |
+| `backend` | Abandoned April scaffolding. Do not merge — it predates the app code and a merge deletes files silently |
+
+## Known gaps
+
+- **`backend/schema.sql` defines 6 of 12 tables.** Running it against a fresh
+  Supabase project will not produce a working database.
+- **No test suite.** `test/widget_test.dart` is the unmodified Flutter template.
+- **Itinerary generation takes about 50 seconds**, most of it queue wait at the
+  public Overpass endpoint.
+- **Release builds are signed with debug keys**, which app stores reject.
