@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: subosito/flutter-action@v2
         with:
@@ -32,49 +32,57 @@ jobs:
       - name: Show toolchain
         run: flutter --version
 
+      # flutter_webrtc, livekit_client and permission_handler_apple have no
+      # Swift Package Manager support, so leaving SPM on builds a mixed
+      # SPM/CocoaPods workspace for no benefit. Keep it on CocoaPods alone.
+      - name: Use CocoaPods only
+        run: flutter config --no-enable-swift-package-manager
+
       - name: Install dependencies
         run: flutter pub get
 
-      # Generates ios/Podfile and Generated.xcconfig without compiling, so the
-      # Podfile can be pinned before CocoaPods resolves anything.
+      # Writes ios/Flutter/Generated.xcconfig - including the dart-defines,
+      # which xcodebuild reads from there - and runs pod install. It does not
+      # compile: the Dart build happens inside the Xcode build phase below.
       - name: Prepare iOS config
-        run: flutter build ios --config-only --no-codesign --release
-             --dart-define=API_BASE_URL=${{ inputs.api_base_url }}
-
-      # LiveKit and WebRTC need iOS 13 or newer. The generated Podfile leaves
-      # the platform line commented out, which lets CocoaPods fall back to a
-      # version those pods reject.
-      - name: Pin the iOS platform version
         run: |
-          cd ios
-          if grep -q "^platform :ios" Podfile; then
-            sed -i '' "s/^platform :ios.*/platform :ios, '13.0'/" Podfile
-          else
-            sed -i '' "1i\\
-          platform :ios, '13.0'
-          " Podfile
-          fi
-          head -3 Podfile
+          flutter build ios --config-only --release --no-codesign \
+            --dart-define=API_BASE_URL=${{ inputs.api_base_url }}
 
-      - name: Install pods
-        run: cd ios && pod install --repo-update
+      # Built through xcodebuild rather than `flutter build ios --no-codesign`.
+      # That flag does not reliably stop Xcode demanding a Development Team,
+      # and there is no team to give it: the app is signed later, on the
+      # Windows machine, with a personal Apple ID. Turning signing off at the
+      # xcodebuild level is unambiguous.
+      - name: Build unsigned
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios_dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            EXPANDED_CODE_SIGN_IDENTITY="" \
+            build
 
-      - name: Build (unsigned)
-        run: flutter build ios --release --no-codesign
-             --dart-define=API_BASE_URL=${{ inputs.api_base_url }}
-
-      # flutter build ios produces a .app. An .ipa is just that .app inside a
-      # Payload/ directory, zipped.
+      # An .ipa is just the .app inside a Payload/ directory, zipped.
       - name: Package as .ipa
         run: |
-          cd build/ios/iphoneos
-          mkdir -p Payload
-          cp -R Runner.app Payload/
+          APP=build/ios_dd/Build/Products/Release-iphoneos/Runner.app
+          test -d "$APP" || { echo "No Runner.app at $APP"; ls -R build/ios_dd/Build/Products || true; exit 1; }
+          mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          cd build/ipa
           zip -qry TogetherIRL.ipa Payload
           ls -lh TogetherIRL.ipa
 
       - uses: actions/upload-artifact@v4
         with:
           name: TogetherIRL-ipa
-          path: build/ios/iphoneos/TogetherIRL.ipa
+          path: build/ipa/TogetherIRL.ipa
           retention-days: 14
