@@ -1,0 +1,80 @@
+# Builds an unsigned .ipa on a macOS runner so it can be sideloaded from a
+# Windows machine. Nobody on the team has a Mac to hand, and Flutter cannot
+# compile for iOS anywhere else.
+#
+# Run it from the Actions tab: "Build iOS app (unsigned)" -> Run workflow.
+# Download the .ipa from the run's Artifacts section, then sign and install
+# it with Sideloadly or AltStore. The build is deliberately unsigned: the
+# sideloading tool re-signs it with your own free Apple ID.
+name: Build iOS app (unsigned)
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Backend URL the app should call (your laptop's LAN address, e.g. http://192.168.1.41:3000)"
+        required: true
+        default: "http://192.168.1.41:3000"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Generates ios/Podfile and Generated.xcconfig without compiling, so the
+      # Podfile can be pinned before CocoaPods resolves anything.
+      - name: Prepare iOS config
+        run: flutter build ios --config-only --no-codesign --release
+             --dart-define=API_BASE_URL=${{ inputs.api_base_url }}
+
+      # LiveKit and WebRTC need iOS 13 or newer. The generated Podfile leaves
+      # the platform line commented out, which lets CocoaPods fall back to a
+      # version those pods reject.
+      - name: Pin the iOS platform version
+        run: |
+          cd ios
+          if grep -q "^platform :ios" Podfile; then
+            sed -i '' "s/^platform :ios.*/platform :ios, '13.0'/" Podfile
+          else
+            sed -i '' "1i\\
+          platform :ios, '13.0'
+          " Podfile
+          fi
+          head -3 Podfile
+
+      - name: Install pods
+        run: cd ios && pod install --repo-update
+
+      - name: Build (unsigned)
+        run: flutter build ios --release --no-codesign
+             --dart-define=API_BASE_URL=${{ inputs.api_base_url }}
+
+      # flutter build ios produces a .app. An .ipa is just that .app inside a
+      # Payload/ directory, zipped.
+      - name: Package as .ipa
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry TogetherIRL.ipa Payload
+          ls -lh TogetherIRL.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherIRL-ipa
+          path: build/ios/iphoneos/TogetherIRL.ipa
+          retention-days: 14
