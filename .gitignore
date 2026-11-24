@@ -56,8 +56,20 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 *.jks
 *.keystore
 
-# iOS
-ios/
+# iOS - the Xcode project, Info.plist and assets are tracked; only the
+# generated and machine-specific parts are ignored.
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+ios/Podfile.lock
+ios/ServiceDefinitions.json
+ios/build/
 
 # Other generated platform folders
 linux/
