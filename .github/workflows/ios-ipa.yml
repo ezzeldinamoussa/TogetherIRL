@@ -24,8 +24,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Pinned to the version the team develops against. Tracking `stable`
+      # pulled Flutter 3.50 / Dart 3.14, under which livekit_client 2.7.0 no
+      # longer compiles: Dart tightened type promotion across `await`, and the
+      # package reads a nullable field afterwards. The failure is in the
+      # package's own source, so there is nothing to fix on our side, and
+      # upgrading LiveKit mid-testing is a bigger change than this is worth.
+      # Building what we actually test is also the point of the exercise.
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: 3.38.9
           channel: stable
           cache: true
 
